@@ -1,6 +1,7 @@
 import type { ParameterId, ParameterValues } from './parameter-types';
 import { conductorMagnitudes, injectionTopology } from './electrical';
 import { stepShaftBrake } from './shaft-brake';
+import { DCLink } from './dc-link';
 import type { AnalogReading, Direction, DriveState, ElectricalOutput, EngineConfiguration, EngineConfigUpdate, FaultCode, Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, ReadonlyEngineConfiguration, RunningDirection } from './engine-types';
 /* Original teaching model for ATV11HU09M2E. Parameter and I/O contracts are
    drawn from Schneider Electric ATV11 user manual V1.2 IE >=21, pp.26-33,
@@ -35,7 +36,6 @@ const DC_INJECTION_VOLTAGE_SCALE = 20;
 const MOTOR_THERMAL_TIME = 45;
 const DRIVE_THERMAL_TIME = 60;
 const BASE_BRAKING_LOSS = 35;
-const BUS_CAPACITANCE = 0.0006;
 
 function frozenConfiguration(config: ReadonlyEngineConfiguration): ReadonlyEngineConfiguration {
     const copy = copyConfiguration(config);
@@ -67,6 +67,7 @@ export class VFDDrive {
     private referenceDemand = 0;
     private electricalPhase = 0;
     private shaftReaction = 0;
+    private readonly dcLink = new DCLink();
     private dcTime = Infinity;
     private wasRunning = false;
     private lowSpeedTime = 0;
@@ -149,6 +150,7 @@ export class VFDDrive {
         this.frequencyVelocity = 0;
         this.electricalPhase = 0;
         this.shaftReaction = 0;
+        this.dcLink.reset();
         this.dcTime = Infinity;
         this.wasRunning = false;
         this.previousPower = !!this.configuration.inputs.powered;
@@ -452,7 +454,7 @@ export class VFDDrive {
             direction = 0;
         if (direction)
             this.lastActiveDirection = direction;
-        let enable = power && !s.fault && !nst;
+        let enable = power && !s.fault && !nst && !this.dcLink.precharging;
         if (!power && this.controlledPowerStop && s.dcBus >= 230 && !s.fault) {
             enable = true;
             direction = 0;
@@ -664,23 +666,19 @@ export class VFDDrive {
         // DC link. AC regeneration requires negative synchronous-field power;
         // opposite rotor/field directions instead describe plugging.
         s.regenerativePower = this.electricalMode === 'ac' && te * s.frequency < 0 ? Math.max(0, -te * s.omega) : 0;
-        const base = power ? i.supplyV * Math.SQRT2 : 0;
-        if (power) {
-            if (s.dcBus < base)
-                s.dcBus += (base - s.dcBus) * (1 - Math.exp(-dt / 0.025));
-            const regen = Math.max(0, s.regenerativePower - BASE_BRAKING_LOSS);
-            const dissipation = i.brakeModule ? clamp((s.dcBus - 350) * 20, 0, 1800) : Math.max(0, (s.dcBus - base) * 1.2);
-            const v2 = s.dcBus * s.dcBus + 2 * (regen - dissipation) * dt / BUS_CAPACITANCE;
-            s.dcBus = Math.max(base, Math.sqrt(Math.max(0, v2)));
-        }
-        else if (this.controlledPowerStop && enable) {
-            const electricalLoss = 20 + 12 * s.current * s.current;
-            s.dcBus = Math.sqrt(Math.max(0, s.dcBus * s.dcBus + 2 * (s.regenerativePower - electricalLoss) * dt / BUS_CAPACITANCE));
-            if (!s.running)
-                this.controlledPowerStop = false;
-        }
-        else
-            s.dcBus *= Math.exp(-dt / 0.15);
+        // The reduced plant's air-gap power drives the rectifier/capacitor.
+        // This provisional loss estimate is replaced by winding losses when
+        // the dynamic equivalent circuit is installed in the next stage.
+        const synchronousOmega = 4 * Math.PI * s.frequency / m.poles;
+        const dcConductor = s.current * (connectedOutputs === 3 ? Math.SQRT2 : Math.sqrt(3 / 2));
+        const boardPower = s.dcBus >= 30 ? 5 : 0;
+        const electricalPower = this.electricalMode === 'ac'
+            ? te * synchronousOmega + 12 * s.current * s.current + BASE_BRAKING_LOSS
+            : this.electricalMode === 'dc' ? voltage * dcConductor + boardPower : boardPower;
+        const link = this.dcLink.step(dt, { powered: power, supplyV: i.supplyV,
+            electricalPower, brakeModule: i.brakeModule });
+        s.dcBus = link.voltage;
+        if (!power && this.controlledPowerStop && !s.running) this.controlledPowerStop = false;
         if (s.dcBus > 415 && s.regenerativePower > BASE_BRAKING_LOSS) {
             this.brakingOvervoltageTime += dt;
             if (this.brakingOvervoltageTime > 0.01)

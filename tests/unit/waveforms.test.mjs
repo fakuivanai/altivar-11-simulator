@@ -440,7 +440,7 @@ test('No closed DC motor circuit carries no current', () => {
     });
   }
 });
-test('DC injection dissipates rotor energy without charging the bus', () => {
+test('DC injection dissipates rotor energy without regenerating to the bus', () => {
   const e = new Engine(config(c => {
     c.parameters.dEC = 0;
     c.parameters['FUn.AdC.tdC'] = 5;
@@ -454,7 +454,7 @@ test('DC injection dissipates rotor energy without charging the bus', () => {
   e.setInputs({
     LI1: false
   });
-  const before = e.state.dcBus;
+  const rectifierPeak = e.config.inputs.supplyV * Math.SQRT2;
   let dc = false;
   for (let n = 0; n < 200; n++) {
     e.advance(.005);
@@ -463,7 +463,8 @@ test('DC injection dissipates rotor energy without charging the bus', () => {
       assert.equal(e.state.regenerativePower, 0);
     }
     assert.equal(e.state.fault, null);
-    assert.ok(e.state.dcBus <= before + 1e-8);
+    // The live rectifier can recharge a ripple trough during DC injection.
+    assert.ok(e.state.dcBus <= rectifierPeak + 1e-8);
   }
   assert.ok(dc && e.state.rpm > 0);
 });
@@ -478,6 +479,7 @@ test('Inhibition and faults immediately clear the exported output mode', () => {
   const f = new Engine(config(c => {
     c.inputs.shortCircuit = true;
   }));
+  f.advance(.3);
   f.setInputs({
     LI1: true
   });

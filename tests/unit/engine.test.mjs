@@ -46,9 +46,14 @@ function config() {
 function setup(mutator = () => {}) {
   const c = config();
   mutator(c);
-  return new Engine(c);
+  const drive = new Engine(c);
+  // Operational tests start with a charged bus; power-up behavior has its own cases.
+  if (c.inputs.powered) drive.advance(.3);
+  return drive;
 }
 function start(e, time = 6) {
+  // Direct comparison engines need the same standby precharge as setup().
+  if (e.state.time === 0 && e.config.inputs.powered) e.advance(.3);
   e.setInputs({
     LI1: true
   });
@@ -58,6 +63,26 @@ function start(e, time = 6) {
 function finiteState(e) {
   for (const [k, v] of Object.entries(e.state)) if (typeof v === 'number') assert(Number.isFinite(v), k + ' must remain finite');
 }
+test('Cold power-up precharges before energizing and preserves bus charge on supply loss', () => {
+  const drive = new Engine(config());
+  assert.equal(drive.state.dcBus, 0);
+  drive.setInputs({ LI1: true });
+  drive.advance(.1);
+  assert(drive.state.dcBus > 0 && drive.state.dcBus < 230 * Math.SQRT2);
+  assert.equal(drive.state.outputMode, 'off');
+  assert.equal(drive.state.running, false);
+  assert.equal(drive.state.current, 0);
+  assert.equal(drive.state.fault, null);
+  drive.advance(.3);
+  assert.equal(drive.state.outputMode, 'ac');
+  assert.equal(drive.state.running, true);
+  assert(drive.state.dcBus > 230);
+  assert.equal(drive.state.fault, null);
+  const charged = drive.state.dcBus;
+  drive.setInputs({ powered: false });
+  drive.advance(.005);
+  assert(drive.state.dcBus > 0 && drive.state.dcBus < charged);
+});
 test('Factory run, forward/reverse and read-only monitors', () => {
   const e = setup();
   start(e);
@@ -562,7 +587,8 @@ test('Control inhibit preserves moving rotor, heat and latched faults', () => {
   assert.equal(e.state.driveThermal, before.driveThermal);
   assert.equal(e.state.time, before.time);
   const f = setup(c => c.inputs.shortCircuit = true);
-  start(f, .02);
+  // Initial precharge completes before the inverter can energize the short.
+  start(f, .25);
   assert.equal(f.state.fault, 'SCF');
   f.inhibitCommands();
   assert.equal(f.state.fault, 'SCF');
@@ -586,7 +612,7 @@ test('Regenerative overvoltage cannot reset while its bus cause remains', () => 
   assert.equal(e.state.fault, 'ObF');
   assert(e.state.dcBus > 415);
   assert.equal(e.resetFault(), false);
-  e.advance(.2);
+  e.advance(1);
   assert(e.state.dcBus <= 415);
   assert(e.resetFault());
 });
