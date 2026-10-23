@@ -1,4 +1,4 @@
-# Drive simulator
+# Altivar 11 simulator
 
 A Spanish classroom simulator of a variable frequency drive, with a projection view and a study guide. The model represents an ATV11HU09M2E, with a reduced induction-motor model for teaching.
 
