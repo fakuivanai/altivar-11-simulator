@@ -1,5 +1,5 @@
 // Output waveforms for the scope tab, synthesized from the drive's present state as
-// if it were in steady state. The time origin is the rising zero crossing of the
+// if it were in steady state. The time origin is the zero crossing of the
 // phase U reference, so the picture stands still like a triggered oscilloscope.
 //
 // Modulation: regular-sampled carrier PWM, as digital drives update the duty once per
@@ -10,26 +10,12 @@
 // inductance, which the simulator does not model.
 
 import { PHASES } from './engine-types';
-import type { Phase } from './engine-types';
-export { PHASES };
-export type { Phase };
+import type { ElectricalOutput, Phase } from './engine-types';
+export { PHASES } from './engine-types';
+export type { Phase } from './engine-types';
 
-export interface ScopeInput {
-  mode: 'off' | 'ac' | 'dc';
-  /** Signed output frequency, Hz; negative reverses the phase sequence. */
-  frequency: number;
-  /** Fundamental line-to-line voltage, V rms (in DC, voltage from injection source to returns). */
-  voltage: number;
-  dcBus: number;
-  /** Switching frequency, kHz. */
-  switchingKHz: number;
-  /** Per-conductor current magnitudes, A rms in AC and constant A in DC. */
-  current: Readonly<Record<Phase, number>>;
-  /** Lag of the fundamental current behind the phase voltage, rad. */
-  currentLag: number;
-  /** Which motor conductors are connected. */
-  connected: Readonly<Record<Phase, boolean>>;
-}
+/** Instruments consume the output already described by the model. */
+export type ScopeInput = ElectricalOutput;
 
 /** A piecewise-constant signal: value[k] holds from edge[k] to edge[k + 1]. */
 export interface Steps { edges: number[]; values: number[] }
@@ -41,22 +27,23 @@ export const MIN_SCOPE_FREQUENCY = 1;
 function clamp(value: number, low: number, high: number): number { return Math.min(high, Math.max(low, value)); }
 
 /** Electrical angle at time t after the trigger. */
-export function angleAt(input: ScopeInput, t: number): number { return 2 * Math.PI * input.frequency * t; }
+export function angleAt(input: ScopeInput, t: number): number { return input.mode === 'ac' ? 2 * Math.PI * input.frequency * t : 0; }
 
 /** Duty of each leg (0 to 1) for the references at time t. */
 export function duties(input: ScopeInput, t: number): Record<Phase, number> {
   if (input.mode === 'off' || input.dcBus <= 0) return { U: 0.5, V: 0.5, W: 0.5 };
-  // Phase reference peaks: sqrt(2) Vll / sqrt(3) in AC; in DC, U carries +2/3 of the
-  // U to V/W voltage and V, W carry -1/3 each.
+  // Phase reference peaks are sqrt(2) Vll / sqrt(3) in AC. In DC the model's
+  // source leg drives the stated voltage against its connected return legs.
   const reference: Record<Phase, number> = input.mode === 'dc'
     ? (() => {
       // The injection source follows the first connected conductor. An open U
       // therefore transfers injection to V/W instead of driving them identically.
-      const connected = PHASES.filter(phase => input.connected[phase]);
+      const { source, returns } = input.topology;
       const result: Record<Phase, number> = { U: 0, V: 0, W: 0 };
-      if (connected.length < 2) return result;
-      for (const phase of connected)
-        result[phase] = (phase === connected[0] ? connected.length - 1 : -1) * input.voltage / connected.length;
+      if (source === null) return result;
+      const count = returns.length + 1;
+      result[source] = returns.length * input.voltage / count;
+      for (const phase of returns) result[phase] = -input.voltage / count;
       return result;
     })()
     : (() => {
@@ -158,17 +145,18 @@ export function lineFundamental(input: ScopeInput, t: number): number {
  * current, driven by the voltage between them; with two open nothing flows.
  */
 export function phaseCurrents(input: ScopeInput, t: number): Record<Phase, number> {
-  const connected = PHASES.filter(phase => input.connected[phase] && input.current[phase] > 0);
   const result: Record<Phase, number> = { U: 0, V: 0, W: 0 };
-  if (input.mode === 'off' || connected.length < 2) return result;
+  if (input.mode === 'off') return result;
   if (input.mode === 'dc') {
-    const [first, ...rest] = connected;
-    result[first!] = input.current[first!];
-    // Preserve the same per-conductor magnitudes used by the bench meters.
-    for (const phase of rest) result[phase] = -input.current[phase];
+    const { source, returns } = input.topology;
+    if (source === null) return result;
+    result[source] = input.current[source];
+    for (const phase of returns) result[phase] = -input.current[phase];
     return result;
   }
-  // so reversing the phase sequence also reverses its angular sign.
+  const connected = PHASES.filter(phase => input.connected[phase] && input.current[phase] > 0);
+  if (connected.length < 2) return result;
+  // Current lags in physical time, so reverse rotation changes the angular lag sign.
   const angle = angleAt(input, t) - (input.frequency < 0 ? -1 : 1) * input.currentLag;
   if (connected.length === 3) {
     for (const phase of PHASES) result[phase] = Math.SQRT2 * input.current[phase] * Math.sin(angle + OFFSET[phase]);
@@ -186,10 +174,12 @@ export function phaseCurrents(input: ScopeInput, t: number): Record<Phase, numbe
 
 /** Time window for the two display modes. */
 export function scopeWindow(input: ScopeInput, zoom: false | { angle: number; length: number }): { start: number; length: number } {
-  const frequency = Math.max(Math.abs(input.frequency), MIN_SCOPE_FREQUENCY);
+  // Without AC there is no period to follow; retain the scope's 50 Hz time base.
+  const signedFrequency = input.mode === 'ac' ? input.frequency : 50;
+  const frequency = Math.max(Math.abs(signedFrequency), MIN_SCOPE_FREQUENCY);
   if (!zoom) return { start: 0, length: 2 / frequency };
   // Centre the zoom window where phase U is at the chosen angle.
-  const centre = zoom.angle / (2 * Math.PI * (input.frequency < 0 ? -frequency : frequency));
+  const centre = zoom.angle / (2 * Math.PI * (signedFrequency < 0 ? -frequency : frequency));
   return { start: centre - zoom.length / 2, length: zoom.length };
 }
 

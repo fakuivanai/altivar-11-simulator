@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as W from '../../waveforms.ts';
+import { injectionTopology } from '../../electrical.ts';
 import { VFDDrive as Engine } from '../../engine.ts';
 import CATALOG from '../../catalog-final.json' with { type: 'json' };
 const base = {
@@ -22,7 +23,14 @@ const base = {
     W: true
   }
 };
-const input = change => ({ ...base, ...change });
+const input = change => {
+  const result = {
+    ...base,
+    ...change
+  };
+  if (result.mode === 'dc') result.topology = injectionTopology(result.connected);
+  return result;
+};
 function average(steps, from, to) {
   let sum = 0;
   for (let k = 0; k < steps.values.length; k++) {
@@ -327,10 +335,7 @@ test('Engine: DC injection and idle output modes', () => {
   assert.ok(seen);
 });
 function fromEngine(engine) {
-  const r = engine.state;
-  return { mode: r.outputMode, frequency: r.frequency, voltage: r.voltage, dcBus: r.dcBus,
-    switchingKHz: r.switchingFrequency, current: { U: r.phaseCurrentU, V: r.phaseCurrentV, W: r.phaseCurrentW },
-    currentLag: r.currentLag, connected: engine.config.inputs.outputConnections };
+  return engine.state.output;
 }
 test('Forward and reverse motoring consume energy with the same displacement factor', () => {
   const states = [];

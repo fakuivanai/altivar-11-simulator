@@ -1,5 +1,6 @@
 import type { ParameterId, ParameterValues } from './parameter-types';
-import type { AnalogReading, Direction, DriveState, EngineConfiguration, EngineConfigUpdate, FaultCode, Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, RunningDirection } from './engine-types';
+import { conductorMagnitudes, injectionTopology } from './electrical';
+import type { AnalogReading, Direction, DriveState, ElectricalOutput, EngineConfiguration, EngineConfigUpdate, FaultCode, Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, ReadonlyEngineConfiguration, RunningDirection } from './engine-types';
 /* Original teaching model for ATV11HU09M2E. Parameter and I/O contracts are
    drawn from Schneider Electric ATV11 user manual V1.2 IE >=21, pp.26-33,
    https://se.my.site.com/ckmContent/sfc/servlet.shepherd/document/download/0698V00000lppRiQAI
@@ -7,10 +8,10 @@ import type { AnalogReading, Direction, DriveState, EngineConfiguration, EngineC
    The motor equations are an original reduced model, not copied firmware. */
 const clamp = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 // Explicit domain copies also work when a caller uses a Solid store.
-function copyInputs(inputs: Inputs): Inputs {
+function copyInputs(inputs: ReadonlyEngineConfiguration['inputs']): Inputs {
     return { ...inputs, outputConnections: { ...inputs.outputConnections } };
 }
-function copyConfiguration(config: EngineConfiguration): EngineConfiguration {
+function copyConfiguration(config: ReadonlyEngineConfiguration): EngineConfiguration {
     return {
         parameters: { ...config.parameters },
         motor: { ...config.motor },
@@ -19,13 +20,24 @@ function copyConfiguration(config: EngineConfiguration): EngineConfiguration {
     };
 }
 const DRIVE_CURRENT = 2.1, FIXED_STEP = 0.005;
+function frozenConfiguration(config: ReadonlyEngineConfiguration): ReadonlyEngineConfiguration {
+    const copy = copyConfiguration(config);
+    Object.freeze(copy.parameters);
+    Object.freeze(copy.motor);
+    Object.freeze(copy.mechanical);
+    Object.freeze(copy.inputs.outputConnections);
+    Object.freeze(copy.inputs);
+    return Object.freeze(copy);
+}
 const AUTO_FAULTS = new Set<FaultCode>(['OHF', 'OLF', 'OLC', 'ULF', 'ObF', 'OSF', 'PHF']);
 const POWER_RESET_FAULTS = new Set<FaultCode>(['OCF', 'SCF', 'InF', 'CrF', 'CFF']);
-type RuntimeDriveState = Omit<DriveState, keyof PhysicalReadings>;
+type RuntimeDriveState = Omit<DriveState, keyof PhysicalReadings | 'output' | 'outputMode'>;
 export class VFDDrive {
     static readonly DRIVE_CURRENT = DRIVE_CURRENT;
     static readonly FIXED_STEP = FIXED_STEP;
-    config: EngineConfiguration;
+    private configuration: ReadonlyEngineConfiguration;
+    private electricalMode: ElectricalOutput['mode'] = 'off';
+    get config(): ReadonlyEngineConfiguration { return this.configuration; }
     private runtimeState: RuntimeDriveState;
     private previousInputs: Inputs;
     private previousPower: boolean;
@@ -54,8 +66,8 @@ export class VFDDrive {
     private controlledPowerStop = false;
     private lastActiveDirection: RunningDirection = 1;
     get state(): Readonly<DriveState> { return this.snapshot(); }
-    constructor(config: EngineConfiguration) {
-        this.config = copyConfiguration(config);
+    constructor(config: ReadonlyEngineConfiguration) {
+        this.configuration = frozenConfiguration(config);
         this.runtimeState = stoppedState(config);
         this.previousInputs = copyInputs(config.inputs);
         this.previousPower = config.inputs.powered;
@@ -64,16 +76,16 @@ export class VFDDrive {
         Object.assign(this.runtimeState, this.monitors());
     }
     private p<K extends ParameterId>(id: K): ParameterValues[K] {
-        const value = this.config.parameters[id];
+        const value = this.configuration.parameters[id];
         if (value === undefined)
             throw new Error(`Missing required drive parameter: ${id}`);
         return value;
     }
     private input(id: LogicInputAssignment): boolean {
-        return id !== 'nO' && this.config.inputs[id];
+        return id !== 'nO' && this.configuration.inputs[id];
     }
-    setConfig(config: EngineConfiguration, options: EngineConfigUpdate = {}): void {
-        this.config = copyConfiguration(config);
+    setConfig(config: ReadonlyEngineConfiguration, options: EngineConfigUpdate = {}): void {
+        this.configuration = frozenConfiguration(config);
         if (options.reset) this.reset();
         else if (options.resetControl) this.inhibitCommands();
     }
@@ -92,22 +104,26 @@ export class VFDDrive {
         this.underloadTime = 0;
         this.overcurrentTime = 0;
         this.overspeedTime = 0;
-        this.previousInputs = copyInputs(this.config.inputs);
-        Object.assign(s, { running: false, direction: 0, frequency: 0, reference: 0, rampFrequency: 0, voltage: 0, current: 0, torque: 0, outputMode: 'off', currentLimited: false, referenceReached: false, piActive: false, armed: this.commandReady });
+        this.previousInputs = copyInputs(this.configuration.inputs);
+        this.electricalMode = 'off';
+        Object.assign(s, { running: false, direction: 0, frequency: 0, reference: 0, rampFrequency: 0, voltage: 0, current: 0, torque: 0, currentLimited: false, referenceReached: false, piActive: false, armed: this.commandReady });
         this.referenceDemand = this.reference(0, 0);
         Object.assign(s, this.monitors());
         this.outputs();
-        s.status = this.config.inputs.powered ? (s.fault || 'rdY') : '';
+        s.status = this.configuration.inputs.powered ? (s.fault || 'rdY') : '';
         return this.state;
     }
     setInputs(inputs: Partial<Inputs>): void {
-        Object.assign(this.config.inputs, inputs);
-        if (inputs.outputConnections) this.config.inputs.outputConnections = { ...inputs.outputConnections };
+        this.setConfig({ ...this.configuration, inputs: {
+            ...this.configuration.inputs, ...inputs,
+            outputConnections: inputs.outputConnections ?? this.configuration.inputs.outputConnections,
+        } });
     }
     reset(): void {
         this.accumulator = 0;
-        this.previousInputs = copyInputs(this.config.inputs);
-        this.runtimeState = stoppedState(this.config);
+        this.previousInputs = copyInputs(this.configuration.inputs);
+        this.runtimeState = stoppedState(this.configuration);
+        this.electricalMode = 'off';
         this.commandReady = !this.runSignalsPresent();
         this.directionLatch = 0;
         this.trnDirection = 0;
@@ -116,7 +132,7 @@ export class VFDDrive {
         this.electricalPhase = 0;
         this.dcTime = Infinity;
         this.wasRunning = false;
-        this.previousPower = !!this.config.inputs.powered;
+        this.previousPower = !!this.configuration.inputs.powered;
         this.lowSpeedTime = 0;
         this.lowSpeedSleeping = false;
         this.overloadTime = 0;
@@ -173,7 +189,7 @@ export class VFDDrive {
         return reverse ? -1 : forward ? 1 : 0;
     }
     analog(): AnalogReading {
-        const i = this.config.inputs, pct = clamp(i.analogPosition, 0, 100) / 100;
+        const i = this.configuration.inputs, pct = clamp(i.analogPosition, 0, 100) / 100;
         const type = this.p('AIt.ACt');
         const voltage = i.analogType === '5V' ? 5 * pct : i.analogType === '10V' ? 10 * pct : 0;
         const current = i.analogType === '20mA' ? 20 * pct : 0;
@@ -238,7 +254,7 @@ export class VFDDrive {
         if (this.runtimeState.fault)
             return;
         this.runtimeState.fault = code;
-        this.runtimeState.outputMode = 'off';
+        this.electricalMode = 'off';
         this.runtimeState.running = false;
         this.runtimeState.piActive = false;
         this.runtimeState.current = 0;
@@ -256,7 +272,7 @@ export class VFDDrive {
         this.autoAborted = false;
     }
     private faultCauseGone(code: FaultCode): boolean {
-        const s = this.runtimeState, i = this.config.inputs, bus = i.supplyV * Math.SQRT2;
+        const s = this.runtimeState, i = this.configuration.inputs, bus = i.supplyV * Math.SQRT2;
         if (code === 'OLF')
             return s.motorThermal < 100;
         if (code === 'OHF')
@@ -270,11 +286,11 @@ export class VFDDrive {
         if (code === 'SCF')
             return !i.shortCircuit;
         if (code === 'OLC')
-            return !i.shaftHeld && Math.abs(this.config.mechanical.torque) + this.config.mechanical.friction * Math.abs(s.omega) <= this.motorTorqueAtCurrent(DRIVE_CURRENT * this.p('FUn.LOC') / 100);
+            return !i.shaftHeld && Math.abs(this.configuration.mechanical.torque) + this.configuration.mechanical.friction * Math.abs(s.omega) <= this.motorTorqueAtCurrent(DRIVE_CURRENT * this.p('FUn.LOC') / 100);
         if (code === 'ULF')
             return this.connectedOutputCount() >= 2 && this.estimatedLoadCurrent() >= DRIVE_CURRENT * this.p('FUn.LUL') / 100;
         if (code === 'SOF')
-            return Math.abs(s.rpm) < this.config.motor.speedRPM * 1.2;
+            return Math.abs(s.rpm) < this.configuration.motor.speedRPM * 1.2;
         return true;
     }
     resetFault(powerCycle = false, automatic = false): boolean {
@@ -304,16 +320,16 @@ export class VFDDrive {
         this.lowSpeedSleeping = false;
         return true;
     }
-    private nominalTorque(): number { return 1000 * this.config.motor.powerKW / Math.max(this.config.motor.speedRPM * Math.PI / 30, 0.01); }
-    private motorTorqueAtCurrent(current: number): number { const ir = this.config.motor.current; return this.nominalTorque() * Math.sqrt(Math.max(0, current * current - (0.35 * ir) ** 2)) / (0.93675 * ir); }
-    private estimatedLoadCurrent(): number { const m = this.config.motor, load = Math.abs(this.config.mechanical.torque) + this.config.mechanical.friction * m.speedRPM * Math.PI / 30; return Math.hypot(0.35 * m.current, 0.93675 * m.current * load / this.nominalTorque()); }
+    private nominalTorque(): number { return 1000 * this.configuration.motor.powerKW / Math.max(this.configuration.motor.speedRPM * Math.PI / 30, 0.01); }
+    private motorTorqueAtCurrent(current: number): number { const ir = this.configuration.motor.current; return this.nominalTorque() * Math.sqrt(Math.max(0, current * current - (0.35 * ir) ** 2)) / (0.93675 * ir); }
+    private estimatedLoadCurrent(): number { const m = this.configuration.motor, load = Math.abs(this.configuration.mechanical.torque) + this.configuration.mechanical.friction * m.speedRPM * Math.PI / 30; return Math.hypot(0.35 * m.current, 0.93675 * m.current * load / this.nominalTorque()); }
     private connectedOutputCount(): number {
-        const wires = this.config.inputs.outputConnections;
+        const wires = this.configuration.inputs.outputConnections;
         return Number(wires.U) + Number(wires.V) + Number(wires.W);
     }
     private automaticReset(dt: number): void {
         const s = this.runtimeState;
-        if (!s.fault || !this.config.inputs.powered)
+        if (!s.fault || !this.configuration.inputs.powered)
             return;
         if (s.fault === 'USF' && this.faultCauseGone('USF')) {
             this.resetFault(false, false);
@@ -353,7 +369,7 @@ export class VFDDrive {
     }
     step(dt: number): Readonly<DriveState> { return this.advance(dt); }
     private tick(dt: number): void {
-        const s = this.runtimeState, i = this.config.inputs, m = this.config.motor, l = this.config.mechanical;
+        const s = this.runtimeState, i = this.configuration.inputs, m = this.configuration.motor, l = this.configuration.mechanical;
         // The external clamp absorbs the rotor's initial kinetic energy. That
         // impulse is mechanical work at the clamp, not regenerated bus energy.
         if (i.shaftHeld) s.omega = 0;
@@ -608,7 +624,7 @@ export class VFDDrive {
         s.torque = te;
         s.voltage = voltage;
         s.currentLag = lag;
-        s.outputMode = enable && s.running ? 'ac' : dc ? 'dc' : 'off';
+        this.electricalMode = enable && s.running ? 'ac' : dc ? 'dc' : 'off';
         s.current += (requestCurrent - s.current) * (1 - Math.exp(-dt / 0.03));
         if (connectedOutputs === 2) s.current = Math.min(s.current, aggregateLimit);
         if (!enable || connectedOutputs < 2)
@@ -627,7 +643,7 @@ export class VFDDrive {
         // A stationary DC field dissipates braking energy in the motor, not the
         // DC link. AC regeneration requires negative synchronous-field power;
         // opposite rotor/field directions instead describe plugging.
-        s.regenerativePower = s.outputMode === 'ac' && te * s.frequency < 0 ? Math.max(0, -te * s.omega) : 0;
+        s.regenerativePower = this.electricalMode === 'ac' && te * s.frequency < 0 ? Math.max(0, -te * s.omega) : 0;
         const base = power ? i.supplyV * Math.SQRT2 : 0;
         if (power) {
             if (s.dcBus < base)
@@ -715,7 +731,7 @@ export class VFDDrive {
             out = Number(s.current > this.p('FUn.dO.Ctd'));
         if (code === 'PI')
             out = Number(s.piActive && s.running && !s.fault);
-        if (!this.config.inputs.powered)
+        if (!this.configuration.inputs.powered)
             out = 0;
         s.DO = out;
         s.DOvoltage = 15 * out;
@@ -724,18 +740,11 @@ export class VFDDrive {
         const s = this.runtimeState;
         // FrH is the selected demand, also visible while stopped (tech p.119).
         // s.reference is the signed run/stop target consumed by the ramps.
-        return { FrH: this.referenceDemand, rFr: Math.abs(s.frequency), LCr: s.current, ULn: this.config.inputs.powered ? this.config.inputs.supplyV : 0, tHr: s.motorThermal, tHd: s.driveThermal, rPF: s.piFeedback };
+        return { FrH: this.referenceDemand, rFr: Math.abs(s.frequency), LCr: s.current, ULn: this.configuration.inputs.powered ? this.configuration.inputs.supplyV : 0, tHr: s.motorThermal, tHd: s.driveThermal, rPF: s.piFeedback };
     }
     private physicalReadings(): PhysicalReadings {
-        const s = this.runtimeState, i = this.config.inputs, l = this.config.mechanical;
-        const count = this.connectedOutputCount();
-        // LCr is the RMS over three phase currents. Two remaining equal line
-        // currents are sqrt(3/2) times LCr; the open conductor carries zero.
-        const phaseCurrent = count === 3 ? s.current : count === 2 ? Math.sqrt(3 / 2) * s.current : 0;
-        const dcThree = s.outputMode === 'dc' && count === 3;
-        const U = i.outputConnections.U ? dcThree ? Math.SQRT2 * s.current : phaseCurrent : 0;
-        const V = i.outputConnections.V ? dcThree ? Math.SQRT1_2 * s.current : phaseCurrent : 0;
-        const W = i.outputConnections.W ? dcThree ? Math.SQRT1_2 * s.current : phaseCurrent : 0;
+        const s = this.runtimeState, i = this.configuration.inputs, l = this.configuration.mechanical;
+        const { U, V, W } = conductorMagnitudes(this.electricalMode, s.current, i.outputConnections);
         const average = (U + V + W) / 3;
         const currentImbalance = average > 0 ? 100 * Math.max(Math.abs(U - average), Math.abs(V - average), Math.abs(W - average)) / average : 0;
         const sign = Math.abs(s.omega) > 0.01 ? Math.sign(s.omega) : Math.sign(s.torque) || this.lastActiveDirection;
@@ -747,11 +756,25 @@ export class VFDDrive {
             shaftReactionTorque: i.shaftHeld ? l.torque * sign + l.friction * s.omega - s.torque : 0
         };
     }
-    snapshot(): Readonly<DriveState> { return { ...this.runtimeState, ...this.physicalReadings() }; }
+    private electricalOutput(physical: PhysicalReadings): ElectricalOutput {
+        const s = this.runtimeState;
+        const common = { dcBus: s.dcBus, switchingKHz: s.switchingFrequency,
+            connected: { ...this.configuration.inputs.outputConnections } };
+        if (this.electricalMode === 'off') return { ...common, mode: 'off' };
+        const active = { ...common, voltage: s.voltage, aggregateCurrent: s.current,
+            current: { U: physical.phaseCurrentU, V: physical.phaseCurrentV, W: physical.phaseCurrentW } };
+        return this.electricalMode === 'ac'
+            ? { ...active, mode: 'ac', frequency: s.frequency, currentLag: s.currentLag }
+            : { ...active, mode: 'dc', topology: injectionTopology(common.connected) };
+    }
+    snapshot(): Readonly<DriveState> {
+        const physical = this.physicalReadings(), output = this.electricalOutput(physical);
+        return { ...this.runtimeState, ...physical, output, outputMode: output.mode };
+    }
 }
 // A newly loaded setup starts with zero motion and accumulated heat. These are
 // physical initial conditions, not replacements for absent configuration fields.
-function stoppedState(config: EngineConfiguration): RuntimeDriveState {
+function stoppedState(config: ReadonlyEngineConfiguration): RuntimeDriveState {
     return {
         time: 0,
         omega: 0,
@@ -785,7 +808,6 @@ function stoppedState(config: EngineConfiguration): RuntimeDriveState {
         activeCurrentLimit: config.parameters['drC.CLI'],
         switchingFrequency: config.parameters['FUn.SFt.SFr'],
         currentLag: Math.PI / 2,
-        outputMode: 'off',
         regenerativePower: 0,
         armed: false,
         FrH: 0,

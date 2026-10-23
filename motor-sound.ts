@@ -5,7 +5,9 @@
 //    fs +/- 2f; louder with current. 2 to 4 kHz is clearly audible, 16 kHz barely.
 //  - magnetic hum at twice the output frequency, with the flux (voltage over frequency).
 //  - mechanical and fan noise: filtered noise that rises with speed.
-import type { LiveReadings } from './simulator';
+import type { DriveState } from './engine-types';
+
+type SoundReadings = Pick<DriveState, 'output' | 'rpm'>;
 
 const MASTER = 0.12;
 const SMOOTHING = 0.05;
@@ -58,7 +60,7 @@ export interface MotorSound {
   /** Starts or resumes audio; call from a click handler. */
   start(): Promise<void>;
   stop(): void;
-  update(readings: LiveReadings, ratedRPM: number, ratedVoltage: number, ratedCurrent: number): void;
+  update(readings: SoundReadings, ratedRPM: number, ratedVoltage: number, ratedCurrent: number): void;
   dispose(): void;
 }
 
@@ -94,10 +96,10 @@ export function makeMotorSound(): MotorSound {
     stop() { enabled = false; if (voices) suspend(voices); },
     update(r, ratedRPM, ratedVoltage, ratedCurrent) {
       if (!enabled || !voices || voices.context.state !== 'running') return;
-      const ac = r.outputMode === 'ac', on = r.outputMode !== 'off';
-      const fs = 1000 * r.switchingFrequency, f = Math.abs(r.frequency);
-      const load = Math.min(r.current / Math.max(ratedCurrent, 0.1), 2);
-      const flux = ac ? Math.min(r.voltage / Math.max(f, 2) / (ratedVoltage / 50), 1.5) : 0;
+      const output = r.output, ac = output.mode === 'ac', on = output.mode !== 'off';
+      const fs = 1000 * output.switchingKHz, f = output.mode === 'ac' ? Math.abs(output.frequency) : 0;
+      const load = output.mode === 'off' ? 0 : Math.min(output.aggregateCurrent / Math.max(ratedCurrent, 0.1), 2);
+      const flux = output.mode === 'ac' ? Math.min(output.voltage / Math.max(f, 2) / (ratedVoltage / 50), 1.5) : 0;
       set(voices.carrier.frequency, fs);
       set(voices.lower.frequency, Math.max(20, fs - 2 * f));
       set(voices.upper.frequency, fs + 2 * f);

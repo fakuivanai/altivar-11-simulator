@@ -13,13 +13,7 @@ const FUNDAMENTAL = '#7b3294';
 const ZOOM_LENGTH = 0.002;
 const REDRAW_MS = 50;
 
-export function scopeInput(r: LiveReadings, connected: Readonly<Record<Phase, boolean>>): ScopeInput {
-  return {
-    connected,
-    mode: r.outputMode, frequency: r.frequency, voltage: r.voltage, dcBus: r.dcBus, switchingKHz: r.switchingFrequency,
-    current: { U: r.phaseCurrentU, V: r.phaseCurrentV, W: r.phaseCurrentW }, currentLag: r.currentLag,
-  };
-}
+export function scopeInput(r: LiveReadings): ScopeInput { return r.output; }
 
 interface Plot { top: number; height: number; left: number; width: number; limit: number }
 const yOf = (plot: Plot, value: number): number => plot.top + plot.height / 2 - value / plot.limit * plot.height / 2;
@@ -135,7 +129,6 @@ export function Scope(): JSX.Element {
   const [view, setView] = createSignal<View>('periods');
   const [angle, setAngle] = createSignal(60);
   const [kind, setKind] = createSignal<VoltageKind>('line');
-  const connected = () => sim.state.config.inputs.outputConnections;
   let canvas: HTMLCanvasElement | undefined;
   onMount(() => {
     let request = 0, last = 0;
@@ -143,11 +136,10 @@ export function Scope(): JSX.Element {
       request = requestAnimationFrame(draw);
       if (!canvas || time - last < REDRAW_MS) return;
       last = time;
-      const input = scopeInput(untrack(sim.readings), untrack(connected));
+      const input = scopeInput(untrack(sim.readings));
       const voltageKind = untrack(kind);
       const zoom = untrack(view) === 'zoom' ? { angle: untrack(angle) * Math.PI / 180, length: ZOOM_LENGTH } : false as const;
-      // Without an AC output there is no period to follow; use one of 50 Hz.
-      const span = scopeWindow(input.mode === 'ac' ? input : { ...input, frequency: 50 }, zoom);
+      const span = scopeWindow(input, zoom);
       const width = canvas.clientWidth, height = canvas.clientHeight, scale = canvas.getBoundingClientRect().width / Math.max(width, 1);
       const ratio = (window.devicePixelRatio ?? 1) * scale;
       if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -158,7 +150,7 @@ export function Scope(): JSX.Element {
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, width, height);
       const left = 54, plotWidth = width - left - 4, gap = 12, plotHeight = (height - gap) / 2;
-      const peak = Math.SQRT2 * Math.max(input.current.U, input.current.V, input.current.W);
+      const peak = input.mode === 'off' ? 0 : Math.SQRT2 * Math.max(input.current.U, input.current.V, input.current.W);
       const voltagePlot: Plot = { top: 0, height: plotHeight, left, width: plotWidth, limit: niceLimit(input.dcBus, 100) };
       const currentPlot: Plot = { top: plotHeight + gap, height: plotHeight, left, width: plotWidth, limit: niceLimit(peak * 1.1, 1) };
       const spanText = timeLabel(span.length);
@@ -173,12 +165,13 @@ export function Scope(): JSX.Element {
     onCleanup(() => cancelAnimationFrame(request));
   });
 
-  const input = () => scopeInput(sim.readings(), connected());
+  const input = () => scopeInput(sim.readings());
   const summary = () => {
-    const i = input(), current = Math.max(i.current.U, i.current.V, i.current.W);
+    const i = input();
     if (i.mode === 'off') return { output: 'Sin salida: el variador no alimenta al motor.', current: '' };
+    const current = Math.max(i.current.U, i.current.V, i.current.W);
     if (i.mode === 'dc') {
-      const phases = PHASES.filter(phase => i.connected[phase]);
+      const phases = i.topology.source === null ? [] : [i.topology.source, ...i.topology.returns];
       const terminals = phases.length === 3 ? 'U y los retornos V, W' : phases.join(' y ');
       return {
         output: phases.length >= 2 ? `Inyección de continua: ${i.voltage.toFixed(0)} V entre ${terminals}.` : 'Inyección de continua sin circuito cerrado del motor.',

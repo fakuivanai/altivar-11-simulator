@@ -52,6 +52,48 @@ export interface EngineConfiguration {
     mechanical: MechanicalLoad;
     inputs: Inputs;
 }
+/** Configuration is copied and frozen at the model boundary, including nested inputs. */
+export type ReadonlyEngineConfiguration = {
+    readonly parameters: Readonly<ParameterValues>;
+    readonly motor: Readonly<MotorSpecification>;
+    readonly mechanical: Readonly<MechanicalLoad>;
+    readonly inputs: Readonly<Omit<Inputs, 'outputConnections'>> & {
+        readonly outputConnections: Readonly<OutputConnections>;
+    };
+};
+export interface DCTopology {
+    readonly source: Phase | null;
+    readonly returns: readonly Phase[];
+}
+interface ElectricalOutputBase {
+    readonly dcBus: number;
+    readonly switchingKHz: number;
+    readonly connected: Readonly<OutputConnections>;
+}
+interface EnergizedOutput extends ElectricalOutputBase {
+    /** RMS across the three conductor magnitudes, the model's LCr convention. */
+    readonly aggregateCurrent: number;
+    /** Conductor magnitudes: A rms in AC, constant A in DC. */
+    readonly current: Readonly<Record<Phase, number>>;
+    /** Line-to-line fundamental V rms in AC; source-to-return V in DC. */
+    readonly voltage: number;
+}
+export interface OffOutput extends ElectricalOutputBase {
+    readonly mode: 'off';
+}
+export interface ACOutput extends EnergizedOutput {
+    readonly mode: 'ac';
+    /** Signed frequency determines the phase sequence. */
+    readonly frequency: number;
+    /** Temporal lag of current behind voltage, including reverse operation. */
+    readonly currentLag: number;
+}
+export interface DCOutput extends EnergizedOutput {
+    readonly mode: 'dc';
+    readonly topology: DCTopology;
+}
+/** The model owns the output description consumed by instruments and sound. */
+export type ElectricalOutput = OffOutput | ACOutput | DCOutput;
 export interface MonitorReadings {
     FrH: number;
     rFr: number;
@@ -102,8 +144,9 @@ export interface DriveState extends MonitorReadings, PhysicalReadings {
     switchingFrequency: number;
     /** How far the fundamental current lags the voltage, rad: 0 pure active, pi/2 magnetizing only, over pi/2 regenerating. */
     currentLag: number;
-    /** off: no output; ac: modulated output; dc: DC injection at standstill. */
-    outputMode: 'off' | 'ac' | 'dc';
+    output: ElectricalOutput;
+    /** Compatibility alias derived from output.mode. */
+    outputMode: ElectricalOutput['mode'];
     regenerativePower: number;
     armed: boolean;
     HSU: number;
