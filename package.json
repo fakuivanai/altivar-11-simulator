@@ -1,11 +1,12 @@
 {
-  "name": "simulador-de-variador",
+  "name": "drive-simulator",
   "private": true,
   "version": "1.0.0",
   "scripts": {
     "check": "tsc --noEmit",
     "build": "node build.mjs",
-    "test": "node test-engine.cjs && node test-configuration.cjs ./configuration.cjs && node test-scales.cjs && node test-waveforms.cjs && node test-controller.mjs"
+    "test": "node --import ./tests/register.mjs --test tests/unit/*.test.mjs && node test-controller.mjs",
+    "verify": "pnpm check && pnpm test && pnpm build"
   },
   "dependencies": {
     "solid-js": "1.9.17"
@@ -16,5 +17,10 @@
     "babel-preset-solid": "1.9.16",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"
-  }
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.25.0"
 }

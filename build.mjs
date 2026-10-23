@@ -62,10 +62,6 @@ const guideHtml = html.replace('<html lang="es">', '<html lang="es" data-mode="g
 assert.notEqual(guideHtml, html, 'The learning page must differ from the projection page.');
 await writeFile(source('Simulador de variador, guía de estudio.html'), guideHtml);
 await writeFile(source('Manual del simulador de variador.html'), await readFile(source('manual.html')));
-await build({ absWorkingDir: root, entryPoints: [source('engine.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: source('engine.cjs'), target: 'node20' });
-await build({ absWorkingDir: root, entryPoints: [source('configuration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: source('configuration.cjs'), target: 'node20' });
-await build({ absWorkingDir: root, entryPoints: [source('scales.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: source('scales.cjs'), target: 'node20' });
-await build({ absWorkingDir: root, entryPoints: [source('waveforms.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: source('waveforms.cjs'), target: 'node20' });
 const bundledLibraries = Object.keys(output.metafile.inputs).filter(name => name.includes('node_modules/'));
 assert.ok(bundledLibraries.length > 0, 'The Solid runtime must be embedded.');
 assert.ok(bundledLibraries.every(name => name.includes('/solid-js/')), 'A new bundled library requires its license notice.');
