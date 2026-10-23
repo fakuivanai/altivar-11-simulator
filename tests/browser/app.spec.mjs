@@ -525,6 +525,7 @@ test("native shaft hold freezes angle and release resumes acceleration", async (
   mechanics.parameters['FUn.tOL'] = mechanics.parameters['FUn.tUL'] = 0;
   await install(mechanics);
   await page.locator('#LI1').click();
+  await page.evaluate(() => VFDSimulator.advance(4));
   await page.waitForFunction(() => VFDSimulator.getState().rpm > 600);
   await page.evaluate(() => {
     document.addEventListener('pointerdown', event => {
@@ -561,6 +562,8 @@ test("native shaft hold freezes angle and release resumes acceleration", async (
   assert.equal((await drive()).angle, held.angle);
   await page.mouse.up();
   assert.equal((await config()).inputs.shaftHeld, false);
+  await page.evaluate(() => VFDSimulator.advance(8));
+  assert.equal((await drive()).fault, null);
   await page.waitForFunction(() => VFDSimulator.getState().rpm > 600);
   await stop();
 });
