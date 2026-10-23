@@ -1,0 +1,12 @@
+node_modules
+dist/
+.test/
+test-results/
+playwright-report/
+engine.cjs
+configuration.cjs
+scales.cjs
+waveforms.cjs
+Simulador de variador*.html
+Manual del simulador de variador.html
+*.zip

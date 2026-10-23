@@ -1,0 +1,207 @@
+/* Projection stage: a fixed 1600 x 900 drawing scaled as a whole to the window.
+   Positions come from layout.ts; nothing here is measured at run time. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { color: #1d1d1d; font: 18px Arial, Helvetica, sans-serif; }
+#viewport-frame { position: fixed; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); top: env(safe-area-inset-top, 0px); height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); height: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+#viewport, #projection-host { position: relative; width: 100%; height: 100%; overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button, input[type=number], select { background: #fff; border: 1px solid #8a8a8a; border-radius: 4px; }
+button { cursor: pointer; padding: 4px 8px; }
+button:hover { background: #f0f0f0; }
+:focus-visible { outline: 3px solid #245c76; outline-offset: 2px; }
+h1, h2 { font-weight: 400; margin: 0; }
+a { color: #245c76; }
+.stage { position: absolute; left: 0; top: 0; width: 1600px; height: 900px; transform-origin: 0 0; }
+.placed { position: absolute; margin: 0; }
+
+/* Header */
+.topbar { position: absolute; left: 22px; right: 16px; top: 8px; height: 46px; display: flex; align-items: center; gap: 18px; }
+.topbar h1 { font-size: 27px; white-space: nowrap; }
+.topbar .model { font-size: 17px; color: #555; white-space: nowrap; }
+.status { flex: 1; min-width: 0; font-size: 18px; color: #1d1d1d; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar button { font-size: 17px; height: 36px; }
+.topbar a { font-size: 18px; }
+
+/* Schematic */
+#schematic { position: absolute; left: 0; top: 0; width: 1600px; height: 900px; pointer-events: none; }
+#schematic text { fill: #1d1d1d; font-family: Arial, Helvetica, sans-serif; }
+#schematic .label { font-size: 18px; }
+#schematic .small { font-size: 15px; }
+#schematic .tag { font-size: 13px; fill: #444; }
+#schematic .muted { fill: #555; }
+#schematic .brand { font-size: 17px; }
+#schematic .strip-label { font-size: 12.5px; }
+#schematic .housing { fill: #fff; stroke: #333; stroke-width: 2.2; }
+#schematic .housing-line { stroke: #555; stroke-width: 1.2; fill: none; }
+#schematic .cover { fill: #fafafa; stroke: #444; stroke-width: 1.6; }
+#schematic .strip { fill: #fff; stroke: #666; stroke-width: 1.2; }
+#schematic .terminal { fill: #fff; stroke: #333; stroke-width: 1.5; }
+#schematic .node { fill: #333; }
+#schematic .wires path, #schematic .wire { fill: none; stroke: #333; stroke-width: 1.8; stroke-linejoin: round; }
+#schematic .wires .blade { stroke-width: 2.6; stroke-linecap: round; }
+#schematic .wires .push { stroke-width: 1.6; stroke-dasharray: 3 2; }
+#schematic .wires .arrow { fill: #333; stroke: none; }
+#schematic .mechanical-link { stroke-dasharray: 4 3; stroke-width: 1.4 !important; }
+#schematic .component { fill: #fff; stroke: #333; stroke-width: 1.6; }
+#schematic .short path { stroke: #c01818; stroke-width: 4; fill: none; }
+#schematic .short circle { fill: #c01818; }
+
+/* Drive front panel */
+#display { font: 60px/72px "Courier New", monospace; text-align: center; white-space: nowrap; border: 2px solid #555; background: #fff; letter-spacing: 2px; }
+#display.flash { visibility: hidden; }
+#display.fault { color: #b01d1d; animation: faultblink 1s steps(1) infinite; }
+@keyframes faultblink { 50% { color: #fff; } }
+.key { padding: 0; font-size: 18px; border: 1.5px solid #444; border-radius: 50%; background: #fff; touch-action: manipulation; }
+.key svg { width: 22px; height: 18px; display: block; margin: auto; }
+.key svg path { fill: #333; }
+#route { font-size: 15px; text-align: center; color: #333; white-space: nowrap; overflow: hidden; pointer-events: none; }
+#panel-info { border: 1px solid #bbb; border-radius: 6px; padding: 12px 14px; font-size: 17px; line-height: 23px; }
+#panel-info h2 { font-size: 19px; margin-bottom: 6px; }
+#caption { min-height: 69px; font-size: 19px; line-height: 23px; color: #1d1d1d; }
+#caption.fault { color: #b01d1d; }
+#panel-info ul { margin: 10px 0 0; padding: 0; list-style: none; color: #333; }
+#panel-info li { margin: 3px 0; }
+#panel-info kbd { font: 15px Arial, sans-serif; border: 1px solid #888; border-radius: 4px; padding: 0 5px; background: #f6f6f6; }
+#operator-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd; }
+
+/* Wiring controls: transparent hit areas over the drawn contacts */
+.contact { background: transparent; border: 1px dashed transparent; border-radius: 6px; padding: 0; touch-action: manipulation; }
+.contact:hover { border-color: #999; background: rgba(0,0,0,.03); }
+.contact .name { position: absolute; left: -2px; top: 2px; font-size: 15px; font-weight: 700; }
+.logic { text-align: left; }
+.logic .name { left: auto; right: -30px; top: 16px; }
+.logic.active .name { color: #2d6a3e; }
+.purpose { font-size: 14px; line-height: 22px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.mode { font-size: 13px; padding: 0; }
+#analog-position { accent-color: #555; cursor: pointer; }
+#analog-reading { font-size: 15px; text-align: center; pointer-events: none; }
+#analog-type { font-size: 14px; padding: 2px; }
+#supply-field { font-size: 16px; }
+#supply-field { line-height: 20px; }
+#supply-field input { width: 62px; height: 30px; padding: 2px 4px; font-size: 17px; }
+#power-breaker .name { left: -48px; top: 14px; font-weight: 400; font-size: 18px; }
+#power-breaker.open .name { color: #b01d1d; }
+
+.fault-action { color: #a51c1c; border: 1.5px solid #b84646; background: #fff4f4; font-weight: 700; }
+.fault-action:hover { background: #ffe3e3; }
+.fault-action[aria-pressed=true] { color: #fff; background: #b01d1d; border-color: #b01d1d; }
+.phase.contact .name { left: 4px; top: -8px; font-size: 14px; }
+.phase[aria-pressed=false] { border-color: #b01d1d; background: #fff1f1; }
+.phase[aria-pressed=false] .name { color: #b01d1d; }
+#short-bridge { font-size: 17px; }
+#brake-module { font-size: 13px; line-height: 15px; padding: 2px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+#brake-module svg { width: 40px; height: 20px; }
+#brake-module svg path { fill: none; stroke: #333; stroke-width: 1.6; }
+#brake-module[aria-pressed=true] { background: #e8f1ea; border-color: #2d6a3e; }
+#brake-module .state { font-weight: 700; }
+#hold-shaft { font-size: 18px; }
+#hint { font-size: 15px; line-height: 20px; color: #333; border: 1px solid #ccc; border-radius: 6px; padding: 8px 10px; }
+#motor-canvas { display: block; }
+
+/* Readings */
+#readings { border-left: 1px solid #bbb; padding: 0 0 0 18px; }
+#readings h2, #settings h2 { font-size: 21px; margin-bottom: 8px; }
+.big { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.big div { font-size: 16px; color: #444; }
+.big output { display: block; font-size: 36px; line-height: 40px; color: #1d1d1d; font-variant-numeric: tabular-nums; }
+.state-row { display: flex; gap: 14px; align-items: center; min-height: 26px; margin: 2px 0 2px; font-size: 19px; }
+#run-state { font-weight: 700; }
+#run-state.fault { color: #b01d1d; }
+#limit-state { color: #b01d1d; font-size: 17px; }
+.table { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 2px 10px; font-size: 16px; border-top: 1px solid #ddd; padding-top: 5px; }
+.table .span3 { grid-column: 2 / -1; }
+.table output { font-variant-numeric: tabular-nums; }
+.phases { display: flex; gap: 14px; }
+
+/* Settings */
+#settings { border-left: 1px solid #bbb; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 12px; }
+.fields { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px 12px; font-size: 17px; }
+.fields label { display: block; line-height: 19px; }
+.fields input, .fields select { display: block; width: 100%; height: 36px; padding: 3px 6px; margin-top: 4px; font-size: 19px; }
+.slider-label { display: flex; justify-content: space-between; gap: 8px; font-size: 18px; line-height: 24px; }
+.slider-label output { white-space: nowrap; font-variant-numeric: tabular-nums; }
+input[type=range] { display: block; width: 100%; height: 24px; margin: 2px 0 0; accent-color: #555; cursor: pointer; }
+.mechanics { display: grid; gap: 10px; }
+.ticks { position: relative; height: 16px; margin: 0 9px; font-size: 13px; color: #666; }
+.ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.ticks span:first-child { transform: none; margin-left: -9px; }
+.ticks span:last-child { transform: translateX(-100%); margin-left: 9px; }
+.slider-hint { font-size: 13px; line-height: 17px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.environment { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 10px; font-size: 16px; }
+.environment .wide { grid-column: 1 / -1; }
+.file-row { display: flex; gap: 10px; align-items: center; }
+.file-row button { font-size: 18px; height: 40px; padding: 4px 14px; }
+#file-name { font-size: 15px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#import { display: none; }
+.header-button { font-size: 15px; height: 32px; padding: 2px 10px; white-space: nowrap; }
+.header-button[aria-pressed=true] { background: #e6eef2; border-color: #245c76; }
+.tab-area { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tab-panel { flex: 1; min-height: 0; overflow: auto; padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid #bbb; }
+.tabs button { font-size: 17px; padding: 6px 12px; border: 1px solid #bbb; border-bottom: none; border-radius: 6px 6px 0 0; background: #f2f2f2; margin-bottom: -1px; }
+.tabs button[aria-selected=true] { background: #fff; font-weight: 700; border-bottom: 1px solid #fff; }
+.tab-note { margin: 4px 0 0; font-size: 13px; line-height: 17px; color: #555; }
+.segmented { display: inline-flex; }
+.segmented button { font-size: 14px; padding: 4px 8px; border-radius: 0; white-space: nowrap; }
+.segmented button:first-child { border-radius: 4px 0 0 4px; }
+.segmented button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.segmented button[aria-pressed=true] { background: #245c76; border-color: #245c76; color: #fff; }
+.scope { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }
+.scope-controls { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.legend { display: flex; gap: 10px; font-size: 14px; font-weight: 700; }
+#scope-canvas { display: block; width: 100%; flex: 1; min-height: 220px; }
+.scope-summary { margin: 0; font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; }
+section { margin: 0; }
+
+/* Learning page: stage on the left, study panel on the right. */
+html[data-mode=guide], html[data-mode=guide] body { overflow: hidden; height: 100%; }
+.guide-layout { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 32vw, 620px); }
+.guide-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#stage-host { position: relative; overflow: hidden; flex: none; width: 100%; aspect-ratio: 16 / 9; max-height: calc(var(--viewport-height, 100vh) * .78); }
+.guide-lower { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 3fr 2fr; gap: 14px; padding: 10px 18px 18px; border-top: 1px solid #bbb; background: #fafafa; font: 16px/1.45 Arial, Helvetica, sans-serif; }
+.guide-lower h2 { font-size: 15px; font-weight: 700; color: #555; margin: 4px 0 6px; }
+#guide { overflow-y: auto; border-left: 1px solid #bbb; background: #fafafa; padding: 14px 18px 40px; font: 16px/1.45 Arial, Helvetica, sans-serif; color: #1d1d1d; }
+#guide h2 { font-size: 15px; font-weight: 700; color: #555; margin: 18px 0 6px; }
+#guide h2:first-child { margin-top: 0; }
+.card { background: #fff; border: 1px solid #d4d4d4; border-radius: 8px; padding: 12px 14px; }
+.card + .card { margin-top: 10px; }
+.card.fault { border-color: #b01d1d; background: #fff6f6; }
+.card.fault h3 { color: #b01d1d; }
+.card h3 { font-size: 20px; font-weight: 400; margin: 0 0 4px; }
+.code { font: 700 22px "Courier New", monospace; margin-right: 8px; }
+.crumbs { font-size: 14px; color: #555; margin-bottom: 6px; }
+.crumbs b { color: #1d1d1d; font-weight: 400; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; font-size: 15px; }
+.facts dt { color: #555; } .facts dd { margin: 0; }
+.changed { color: #8a4b00; font-weight: 700; }
+.choices { margin: 8px 0 0; padding: 0; list-style: none; }
+.choices li { padding: 4px 8px; border-radius: 5px; margin: 2px 0; }
+.choices li.current { background: #e6eef2; }
+.choices li.draft { outline: 2px solid #245c76; }
+.choices code, .cfg code { font: 700 15px "Courier New", monospace; }
+.tip { margin-top: 8px; padding: 6px 10px; border-left: 3px solid #245c76; background: #f1f6f8; font-size: 15px; }
+.note { margin-top: 8px; font-size: 14px; color: #555; }
+.keys-help { font-size: 14px; color: #444; margin-top: 8px; }
+.diagnosis { margin: 0; padding-left: 20px; }
+.diagnosis li { margin: 3px 0; }
+.diagnosis li.warn { color: #8a4b00; } .diagnosis li.bad { color: #b01d1d; }
+.cfg { width: 100%; border-collapse: collapse; font-size: 15px; }
+.cfg th { text-align: left; font-size: 14px; color: #555; padding: 8px 4px 2px; font-weight: 700; }
+.cfg td { padding: 2px 4px; border-top: 1px solid #eee; vertical-align: top; }
+.cfg tr.row { cursor: pointer; } .cfg tr.row:hover td { background: #eef3f6; }
+.cfg tr.hidden td { color: #999; }
+.cfg tr.selected td { background: #e6eef2; }
+.cfg td.value { text-align: right; white-space: nowrap; }
+.cfg-tools { display: flex; gap: 14px; align-items: center; font-size: 15px; margin-bottom: 4px; }
+.element-help { min-height: 44px; font-size: 15px; }
+
+/* On phones the complete simulator comes first; study notes scroll below it. */
+@media (max-width: 900px) {
+  .guide-layout { display: block; overflow-y: auto; }
+  #stage-host { height: var(--viewport-height, 100svh); max-height: none; aspect-ratio: auto; }
+  .guide-lower { display: block; overflow: visible; }
+  .guide-lower section + section { margin-top: 12px; }
+  #guide { overflow: visible; border-left: 0; border-top: 1px solid #bbb; }
+}

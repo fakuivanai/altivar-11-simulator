@@ -1,0 +1,47 @@
+[
+  {
+    "filename": "Manual del fabricante.pdf",
+    "originalAttachmentName": "ATV11new programing manual for ver2.pdf",
+    "reference": "VVDED302031 W9; 1623801 01 14 A04; 028297; 2006-01",
+    "sourceUrl": "https://se.my.site.com/ckmContent/sfc/servlet.shepherd/document/download/0698V00000lppRiQAI",
+    "manufacturerPage": "https://www.se.com/us/en/faqs/FA328465/",
+    "sha256": "ba14ef71108ff6515c494f8fbec69489d25380a8291c6ceb05000f59fe32e164",
+    "bytes": 1610952,
+    "pdfPages": 86,
+    "pageMapping": {
+      "SpanishPrinted": [
+        52,
+        67
+      ],
+      "SpanishPdf": [
+        53,
+        68
+      ],
+      "panelPrinted": 56,
+      "panelPdf": 57
+    },
+    "unmodified": true
+  },
+  {
+    "filename": "Referencia del fabricante.pdf",
+    "originalAttachmentName": "ATV 11 Technical manual - EN - mais atual.pdf",
+    "reference": "ATV11.book; June 3 2004",
+    "sourceUrl": "https://se.my.site.com/ckmContent/sfc/servlet.shepherd/document/download/0698V00000erBH3QAM",
+    "manufacturerPage": "https://www.se.com/br/pt/faqs/FA279259/",
+    "sha256": "c58018258d621f5025e61c272079c8922ca5e72f6d2899d927802773d03bed8f",
+    "bytes": 1928409,
+    "pdfPages": 61,
+    "pageMapping": {
+      "EnglishPrinted": [
+        64,
+        124
+      ],
+      "EnglishPdf": [
+        1,
+        61
+      ],
+      "printedToPdfOffset": -63
+    },
+    "unmodified": true
+  }
+]

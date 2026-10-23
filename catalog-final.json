@@ -1,0 +1,1636 @@
+[
+  {
+    "id": "bFr",
+    "code": "bFr",
+    "path": [],
+    "label": "Frecuencia nominal inicial",
+    "default": 50,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "choices": [
+      50,
+      60
+    ],
+    "note": "En el primer nivel aparece solo en la primera puesta en tensión. También se encuentra siempre en FUn.",
+    "aliases": [
+      [
+        "FUn",
+        "bFr"
+      ]
+    ]
+  },
+  {
+    "id": "ACC",
+    "code": "ACC",
+    "path": [],
+    "label": "Tiempo de aceleración",
+    "default": 3,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 99.9,
+    "step": 0.1,
+    "unit": "s"
+  },
+  {
+    "id": "dEC",
+    "code": "dEC",
+    "path": [],
+    "label": "Tiempo de desaceleración",
+    "default": 3,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 99.9,
+    "step": 0.1,
+    "unit": "s"
+  },
+  {
+    "id": "LSP",
+    "code": "LSP",
+    "path": [],
+    "label": "Frecuencia mínima",
+    "default": 0,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "note": "Máximo dinámico igual a HSP."
+  },
+  {
+    "id": "HSP",
+    "code": "HSP",
+    "path": [],
+    "label": "Frecuencia máxima",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "note": "Mínimo dinámico igual a LSP. El valor inicial sigue a bFr.",
+    "aliases": [
+      [
+        "FUn",
+        "HSP",
+        "HSP"
+      ]
+    ]
+  },
+  {
+    "id": "ItH",
+    "code": "ItH",
+    "path": [],
+    "label": "Corriente de protección térmica",
+    "default": 2.1,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 3.15,
+    "step": 0.01,
+    "unit": "A",
+    "note": "El manual da un valor inicial según calibre; el simulador usa In=2.1 A."
+  },
+  {
+    "id": "SP2",
+    "code": "SP2",
+    "path": [],
+    "label": "Velocidad preseleccionada 2",
+    "default": 10,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.PS2.LIA != nO",
+    "note": "Máximo dinámico igual a HSP.",
+    "aliases": [
+      [
+        "FUn",
+        "PS2",
+        "SP2"
+      ]
+    ]
+  },
+  {
+    "id": "SP3",
+    "code": "SP3",
+    "path": [],
+    "label": "Velocidad preseleccionada 3",
+    "default": 25,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.PS2.LIA != nO y FUn.PS2.LIb != nO",
+    "note": "Máximo dinámico igual a HSP.",
+    "aliases": [
+      [
+        "FUn",
+        "PS2",
+        "SP3"
+      ]
+    ]
+  },
+  {
+    "id": "SP4",
+    "code": "SP4",
+    "path": [],
+    "label": "Velocidad preseleccionada 4",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 23
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.PS2.LIA != nO y FUn.PS2.LIb != nO",
+    "note": "Máximo dinámico igual a HSP.",
+    "aliases": [
+      [
+        "FUn",
+        "PS2",
+        "SP4"
+      ]
+    ]
+  },
+  {
+    "id": "AIt.ACt",
+    "code": "ACt",
+    "path": [
+      "AIt"
+    ],
+    "label": "Tipo de señal analógica",
+    "default": "5U",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 24
+    },
+    "choices": [
+      "5U",
+      "10U",
+      "0A",
+      "4A",
+      "CUS"
+    ]
+  },
+  {
+    "id": "AIt.CrL",
+    "code": "CrL",
+    "path": [
+      "AIt"
+    ],
+    "label": "Señal mínima personalizada",
+    "default": 4,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 24
+    },
+    "min": 0,
+    "max": 20,
+    "step": 0.1,
+    "unit": "mA",
+    "condition": "AIt.ACt = CUS",
+    "note": "Debe ser menor que CrH."
+  },
+  {
+    "id": "AIt.CrH",
+    "code": "CrH",
+    "path": [
+      "AIt"
+    ],
+    "label": "Señal máxima personalizada",
+    "default": 20,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 24
+    },
+    "min": 0,
+    "max": 20,
+    "step": 0.1,
+    "unit": "mA",
+    "condition": "AIt.ACt = CUS",
+    "note": "Debe ser mayor que CrL."
+  },
+  {
+    "id": "drC.UnS",
+    "code": "UnS",
+    "path": [
+      "drC"
+    ],
+    "label": "Tensión nominal programada",
+    "default": 230,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 100,
+    "max": 500,
+    "step": 1,
+    "unit": "V",
+    "note": "Valor inicial de la gama E."
+  },
+  {
+    "id": "drC.FrS",
+    "code": "FrS",
+    "path": [
+      "drC"
+    ],
+    "label": "Frecuencia nominal programada",
+    "default": 50,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 40,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "note": "Valor inicial según bFr."
+  },
+  {
+    "id": "drC.StA",
+    "code": "StA",
+    "path": [
+      "drC"
+    ],
+    "label": "Estabilidad del lazo de frecuencia",
+    "default": 20,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "unit": "%",
+    "note": "Mínimo durante marcha: 1. Con StA o FLG igual a 0 se usa control V/f."
+  },
+  {
+    "id": "drC.FLG",
+    "code": "FLG",
+    "path": [
+      "drC"
+    ],
+    "label": "Ganancia del lazo de frecuencia",
+    "default": 20,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "unit": "%",
+    "note": "Mínimo durante marcha: 1. Con StA o FLG igual a 0 se usa control V/f."
+  },
+  {
+    "id": "drC.UFr",
+    "code": "UFr",
+    "path": [
+      "drC"
+    ],
+    "label": "Compensación de caída resistiva",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0,
+    "max": 200,
+    "step": 1,
+    "unit": "%"
+  },
+  {
+    "id": "drC.nCr",
+    "code": "nCr",
+    "path": [
+      "drC"
+    ],
+    "label": "Corriente nominal programada",
+    "default": 2.1,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0.525,
+    "max": 3.15,
+    "step": 0.01,
+    "unit": "A",
+    "note": "Se interpreta el intervalo 0.25 a 1.5 In como fracciones de In. Inicial según calibre; se usa In."
+  },
+  {
+    "id": "drC.CLI",
+    "code": "CLI",
+    "path": [
+      "drC"
+    ],
+    "label": "Límite de corriente",
+    "default": 3.15,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 1.05,
+    "max": 3.15,
+    "step": 0.01,
+    "unit": "A"
+  },
+  {
+    "id": "drC.nSL",
+    "code": "nSL",
+    "path": [
+      "drC"
+    ],
+    "label": "Deslizamiento nominal programado",
+    "default": 2.7,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0,
+    "max": 10,
+    "step": 0.1,
+    "unit": "Hz",
+    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 2.7 Hz."
+  },
+  {
+    "id": "drC.SLP",
+    "code": "SLP",
+    "path": [
+      "drC"
+    ],
+    "label": "Compensación de deslizamiento",
+    "default": 100,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0,
+    "max": 150,
+    "step": 1,
+    "unit": "%",
+    "note": "Porcentaje de nSL."
+  },
+  {
+    "id": "drC.COS",
+    "code": "COS",
+    "path": [
+      "drC"
+    ],
+    "label": "Factor de potencia programado",
+    "default": 0.8,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 25
+    },
+    "min": 0.5,
+    "max": 1,
+    "step": 0.01,
+    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 0.8."
+  },
+  {
+    "id": "FUn.tCC.ACt",
+    "code": "ACt",
+    "path": [
+      "FUn",
+      "tCC"
+    ],
+    "label": "Tipo de mando",
+    "default": "2C",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 26
+    },
+    "choices": [
+      "2C",
+      "3C"
+    ],
+    "note": "Al cambiar restablece rrS, tCt, Atr y PS2.LIA/LIb.",
+    "holdSeconds": 2
+  },
+  {
+    "id": "FUn.tCC.tCt",
+    "code": "tCt",
+    "path": [
+      "FUn",
+      "tCC"
+    ],
+    "label": "Mando de dos hilos",
+    "default": "trn",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 26
+    },
+    "choices": [
+      "LEL",
+      "trn",
+      "PFO"
+    ],
+    "condition": "FUn.tCC.ACt = 2C"
+  },
+  {
+    "id": "FUn.rrS",
+    "code": "rrS",
+    "path": [
+      "FUn"
+    ],
+    "label": "Entrada de marcha inversa",
+    "default": "LI2",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 26
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "note": "Inicial LI2 en 2C y LI3 en 3C. Forzado a nO con PI activo."
+  },
+  {
+    "id": "FUn.PS2.LIA",
+    "code": "LIA",
+    "path": [
+      "FUn",
+      "PS2"
+    ],
+    "label": "Entrada de preselección A",
+    "default": "LI3",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "note": "Inicial LI3 en 2C y LI4 en 3C. Forzado a LI1 con PI activo en E/U."
+  },
+  {
+    "id": "FUn.PS2.LIb",
+    "code": "LIb",
+    "path": [
+      "FUn",
+      "PS2"
+    ],
+    "label": "Entrada de preselección B",
+    "default": "LI4",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "condition": "FUn.PS2.LIA != nO",
+    "note": "Inicial LI4 en 2C y nO en 3C. Asignar LIA antes de LIb."
+  },
+  {
+    "id": "FUn.HSP.LIA",
+    "code": "LIA",
+    "path": [
+      "FUn",
+      "HSP"
+    ],
+    "label": "Entrada de límite de velocidad A",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ]
+  },
+  {
+    "id": "FUn.HSP.LIb",
+    "code": "LIb",
+    "path": [
+      "FUn",
+      "HSP"
+    ],
+    "label": "Entrada de límite de velocidad B",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "condition": "FUn.HSP.LIA != nO",
+    "note": "Asignar LIA antes de LIb."
+  },
+  {
+    "id": "FUn.HSP.HS2",
+    "code": "HS2",
+    "path": [
+      "FUn",
+      "HSP"
+    ],
+    "label": "Límite de velocidad 2",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.HSP.LIA != nO",
+    "note": "Mínimo dinámico igual a LSP. Inicial según bFr."
+  },
+  {
+    "id": "FUn.HSP.HS3",
+    "code": "HS3",
+    "path": [
+      "FUn",
+      "HSP"
+    ],
+    "label": "Límite de velocidad 3",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.HSP.LIA != nO y FUn.HSP.LIb != nO",
+    "note": "Mínimo dinámico igual a LSP. Inicial según bFr."
+  },
+  {
+    "id": "FUn.HSP.HS4",
+    "code": "HS4",
+    "path": [
+      "FUn",
+      "HSP"
+    ],
+    "label": "Límite de velocidad 4",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.HSP.LIA != nO y FUn.HSP.LIb != nO",
+    "note": "Mínimo dinámico igual a LSP. Inicial según bFr."
+  },
+  {
+    "id": "FUn.LOC",
+    "code": "LOC",
+    "path": [
+      "FUn"
+    ],
+    "label": "Umbral de sobrecarga de corriente",
+    "default": 90,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "min": 70,
+    "max": 150,
+    "step": 1,
+    "unit": "% In"
+  },
+  {
+    "id": "FUn.tOL",
+    "code": "tOL",
+    "path": [
+      "FUn"
+    ],
+    "label": "Retardo de sobrecarga",
+    "default": 5,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 27
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "s",
+    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10% In."
+  },
+  {
+    "id": "FUn.AP1",
+    "code": "AP1",
+    "path": [
+      "FUn"
+    ],
+    "label": "Histéresis de referencia alcanzada",
+    "default": 0.3,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "note": "Código AP1 en el cuadro y gráfico. API en el texto es una errata. Descripción aplica con PI en marcha; intervalo interior AP1 menos 0.2 Hz."
+  },
+  {
+    "id": "FUn.LUL",
+    "code": "LUL",
+    "path": [
+      "FUn"
+    ],
+    "label": "Umbral de subcarga de corriente",
+    "default": 60,
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "min": 20,
+    "max": 100,
+    "step": 1,
+    "unit": "% In"
+  },
+  {
+    "id": "FUn.tUL",
+    "code": "tUL",
+    "path": [
+      "FUn"
+    ],
+    "label": "Retardo de subcarga",
+    "default": 5,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "s",
+    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10% In en el gráfico."
+  },
+  {
+    "id": "FUn.tLS",
+    "code": "tLS",
+    "path": [
+      "FUn"
+    ],
+    "label": "Tiempo en frecuencia mínima",
+    "default": 0,
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 101
+    },
+    "min": 0,
+    "max": 999,
+    "step": 1,
+    "unit": "s",
+    "note": "Cero permite tiempo ilimitado. Reinicia si referencia supera LSP y persiste marcha."
+  },
+  {
+    "id": "FUn.PI.PIF",
+    "code": "PIF",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Entrada de realimentación PI",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "nO",
+      "AI1"
+    ],
+    "note": "AI1 activa PI, fuerza rrS=nO y PS2.LIA=LI1 en E/U."
+  },
+  {
+    "id": "FUn.PI.PII",
+    "code": "PII",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Referencia interna PI",
+    "default": "YES",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "YES"
+    ],
+    "condition": "FUn.PI.PIF = AI1",
+    "note": "La opción nO solo corresponde a A/E327; en E/U se usa rPI.",
+    "fixed": true
+  },
+  {
+    "id": "FUn.PI.rPG",
+    "code": "rPG",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Ganancia proporcional PI",
+    "default": 1,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 9.99,
+    "step": 0.01,
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.rIG",
+    "code": "rIG",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Ganancia integral PI",
+    "default": 1,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 9.99,
+    "step": 0.01,
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.FbS",
+    "code": "FbS",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Escala de realimentación PI",
+    "default": 1,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0.01,
+    "max": 100,
+    "step": 0.01,
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.rPI",
+    "code": "rPI",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Referencia interna PI",
+    "default": 0,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "%",
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.PIC",
+    "code": "PIC",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Inversión del error PI",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "nO",
+      "YES"
+    ],
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.PAU",
+    "code": "PAU",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Entrada de selección automático/manual",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "condition": "FUn.PI.PIF = AI1",
+    "note": "0 manual SP2, 1 automático PI. Sin entrada asignada funciona automático."
+  },
+  {
+    "id": "FUn.PI.Pr2",
+    "code": "Pr2",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Entrada de referencia PI A",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "condition": "FUn.PI.PIF = AI1"
+  },
+  {
+    "id": "FUn.PI.Pr4",
+    "code": "Pr4",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Entrada de referencia PI B",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "condition": "FUn.PI.PIF = AI1 y FUn.PI.Pr2 != nO",
+    "note": "Debe asignarse Pr2 antes de Pr4. Tabla PI: B/A 00 rPI,01 PI2,11 PI3,10 PI4."
+  },
+  {
+    "id": "FUn.PI.PI2",
+    "code": "PI2",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Referencia PI preseleccionada 2",
+    "default": 30,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "%",
+    "condition": "FUn.PI.PIF = AI1 y FUn.PI.Pr2 != nO"
+  },
+  {
+    "id": "FUn.PI.PI3",
+    "code": "PI3",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Referencia PI preseleccionada 3",
+    "default": 60,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "%",
+    "condition": "FUn.PI.PIF = AI1 y FUn.PI.Pr2 != nO y FUn.PI.Pr4 != nO"
+  },
+  {
+    "id": "FUn.PI.PI4",
+    "code": "PI4",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Referencia PI preseleccionada 4",
+    "default": 90,
+    "runEditable": true,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 100,
+    "step": 0.1,
+    "unit": "%",
+    "condition": "FUn.PI.PIF = AI1 y FUn.PI.Pr2 != nO y FUn.PI.Pr4 != nO"
+  },
+  {
+    "id": "FUn.PI.rSL",
+    "code": "rSL",
+    "path": [
+      "FUn",
+      "PI"
+    ],
+    "label": "Error mínimo para reinicio PI",
+    "default": 0,
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 107
+    },
+    "min": 0,
+    "max": 999,
+    "step": 1,
+    "unit": "0.1%",
+    "condition": "FUn.PI.PIF = AI1 y FUn.tLS > 0"
+  },
+  {
+    "id": "FUn.rSF",
+    "code": "rSF",
+    "path": [
+      "FUn"
+    ],
+    "label": "Entrada de rearme de falla",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ]
+  },
+  {
+    "id": "FUn.rP2.LI",
+    "code": "LI",
+    "path": [
+      "FUn",
+      "rP2"
+    ],
+    "label": "Entrada de segunda rampa",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ]
+  },
+  {
+    "id": "FUn.rP2.AC2",
+    "code": "AC2",
+    "path": [
+      "FUn",
+      "rP2"
+    ],
+    "label": "Tiempo de segunda aceleración",
+    "default": 5,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "min": 0.1,
+    "max": 99.9,
+    "step": 0.1,
+    "unit": "s",
+    "condition": "FUn.rP2.LI != nO"
+  },
+  {
+    "id": "FUn.rP2.dE2",
+    "code": "dE2",
+    "path": [
+      "FUn",
+      "rP2"
+    ],
+    "label": "Tiempo de segunda desaceleración",
+    "default": 5,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 28
+    },
+    "min": 0.1,
+    "max": 99.9,
+    "step": 0.1,
+    "unit": "s",
+    "condition": "FUn.rP2.LI != nO"
+  },
+  {
+    "id": "FUn.LC2.LI",
+    "code": "LI",
+    "path": [
+      "FUn",
+      "LC2"
+    ],
+    "label": "Entrada de segundo límite de corriente",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 109
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ]
+  },
+  {
+    "id": "FUn.LC2.CL2",
+    "code": "CL2",
+    "path": [
+      "FUn",
+      "LC2"
+    ],
+    "label": "Segundo límite de corriente",
+    "default": 3.15,
+    "runEditable": false,
+    "source": {
+      "manual": "technical",
+      "page": 109
+    },
+    "min": 1.05,
+    "max": 3.15,
+    "step": 0.01,
+    "unit": "A",
+    "condition": "FUn.LC2.LI != nO",
+    "note": "Fuente da valor inicial 1.5 In pero no intervalo. El simulador adopta el de CLI, 0.5 a 1.5 In; esto es una inferencia.",
+    "rangeBasis": "inferred_from_CLI"
+  },
+  {
+    "id": "FUn.nSt",
+    "code": "nSt",
+    "path": [
+      "FUn"
+    ],
+    "label": "Entrada de parada por inercia",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "nO",
+      "LI1",
+      "LI2",
+      "LI3",
+      "LI4"
+    ],
+    "note": "Parada activa cuando la entrada está en 0."
+  },
+  {
+    "id": "FUn.StP",
+    "code": "StP",
+    "path": [
+      "FUn"
+    ],
+    "label": "Parada por pérdida de alimentación",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "nO",
+      "FrP",
+      "FSt"
+    ]
+  },
+  {
+    "id": "FUn.brA",
+    "code": "brA",
+    "path": [
+      "FUn"
+    ],
+    "label": "Adaptación de rampa de desaceleración",
+    "default": "YES",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "nO",
+      "YES"
+    ]
+  },
+  {
+    "id": "FUn.AdC.ACt",
+    "code": "ACt",
+    "path": [
+      "FUn",
+      "AdC"
+    ],
+    "label": "Inyección de corriente continua",
+    "default": "YES",
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "nO",
+      "YES",
+      "Ct"
+    ],
+    "note": "YES duración limitada, Ct continua. En 3C solo si LI1=1. Ct desactiva FLr."
+  },
+  {
+    "id": "FUn.AdC.tdC",
+    "code": "tdC",
+    "path": [
+      "FUn",
+      "AdC"
+    ],
+    "label": "Duración de inyección",
+    "default": 0.5,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "min": 0.1,
+    "max": 30,
+    "step": 0.1,
+    "unit": "s",
+    "condition": "FUn.AdC.ACt = YES"
+  },
+  {
+    "id": "FUn.AdC.SdC",
+    "code": "SdC",
+    "path": [
+      "FUn",
+      "AdC"
+    ],
+    "label": "Corriente de inyección",
+    "default": 1.47,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "min": 0,
+    "max": 2.52,
+    "step": 0.01,
+    "unit": "A",
+    "condition": "FUn.AdC.ACt != nO"
+  },
+  {
+    "id": "FUn.SFt.ACt",
+    "code": "ACt",
+    "path": [
+      "FUn",
+      "SFt"
+    ],
+    "label": "Modo de frecuencia de conmutación",
+    "default": "LF",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "LFr",
+      "LF",
+      "HF"
+    ]
+  },
+  {
+    "id": "FUn.SFt.SFr",
+    "code": "SFr",
+    "path": [
+      "FUn",
+      "SFt"
+    ],
+    "label": "Frecuencia de conmutación",
+    "default": 4,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      2,
+      4,
+      8,
+      12,
+      16
+    ],
+    "unit": "kHz",
+    "note": "LF/LFr: 2 o 4. HF: 8,12 o16, inicial12. A2kHz cambia a4kHz a alta velocidad. HF reduce frecuencia si sube temperatura."
+  },
+  {
+    "id": "FUn.FLr",
+    "code": "FLr",
+    "path": [
+      "FUn"
+    ],
+    "label": "Captura del motor en giro",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 29
+    },
+    "choices": [
+      "nO",
+      "YES"
+    ],
+    "condition": "FUn.tCC.ACt = 2C y FUn.tCC.tCt != trn y FUn.AdC.ACt != Ct"
+  },
+  {
+    "id": "FUn.dO.ACt",
+    "code": "ACt",
+    "path": [
+      "FUn",
+      "dO"
+    ],
+    "label": "Función de salida DO",
+    "default": "rFr",
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "choices": [
+      "nO",
+      "OCr",
+      "rFr",
+      "FtA",
+      "SrA",
+      "CtA",
+      "PI"
+    ],
+    "note": "OCr pleno a2In, rFr pleno aHSP, FtA umbralFtd, SrA referencia alcanzada, CtA umbralCtd, PI regulador en marcha."
+  },
+  {
+    "id": "FUn.dO.Ftd",
+    "code": "Ftd",
+    "path": [
+      "FUn",
+      "dO"
+    ],
+    "label": "Umbral de frecuencia para DO",
+    "default": 50,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "min": 0,
+    "max": 200,
+    "step": 0.1,
+    "unit": "Hz",
+    "condition": "FUn.dO.ACt = FtA",
+    "note": "Inicial según bFr."
+  },
+  {
+    "id": "FUn.dO.Ctd",
+    "code": "Ctd",
+    "path": [
+      "FUn",
+      "dO"
+    ],
+    "label": "Umbral de corriente para DO",
+    "default": 2.1,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "min": 0,
+    "max": 3.15,
+    "step": 0.01,
+    "unit": "A",
+    "condition": "FUn.dO.ACt = CtA"
+  },
+  {
+    "id": "FUn.Atr",
+    "code": "Atr",
+    "path": [
+      "FUn"
+    ],
+    "label": "Reinicio automático",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "choices": [
+      "nO",
+      "YES"
+    ],
+    "condition": "FUn.tCC.ACt = 2C y FUn.tCC.tCt != trn",
+    "note": "Esperas1s,5s,10s y luego60s; abandona tras6min. FallasOHF,OLC,OLF,ObF,OSF,PHF,ULF."
+  },
+  {
+    "id": "FUn.SCS",
+    "code": "SCS",
+    "path": [
+      "FUn"
+    ],
+    "label": "Guardar configuración interna",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "choices": [
+      "nO",
+      "YES"
+    ],
+    "note": "YES guarda copia y vuelve a nO.",
+    "action": true
+  },
+  {
+    "id": "FUn.FCS",
+    "code": "FCS",
+    "path": [
+      "FUn"
+    ],
+    "label": "Recuperar configuración",
+    "default": "nO",
+    "runEditable": false,
+    "source": {
+      "manual": "user",
+      "page": 30
+    },
+    "choices": [
+      "nO",
+      "rEC",
+      "InI"
+    ],
+    "note": "rEC visible tras SCS. InI aplica valores iniciales. Vuelve a nO.",
+    "action": true,
+    "holdSeconds": 2
+  },
+  {
+    "id": "SUP.COd",
+    "code": "COd",
+    "path": [
+      "SUP"
+    ],
+    "label": "Código de acceso",
+    "default": 0,
+    "runEditable": true,
+    "source": {
+      "manual": "user",
+      "page": 31
+    },
+    "min": 0,
+    "max": 999,
+    "step": 1,
+    "note": "Estado OFF sin clave, On bloqueado o código2..999 desbloqueado. Ver procedimiento completo técnico119. Solo monitores disponibles con clave bloqueada. En JSON, OFF se representa con 0. El valor 1 no es válido.",
+    "special": true
+  },
+  {
+    "id": "SUP.FrH",
+    "code": "FrH",
+    "path": [
+      "SUP"
+    ],
+    "label": "Referencia de frecuencia",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "Hz",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.rFr",
+    "code": "rFr",
+    "path": [
+      "SUP"
+    ],
+    "label": "Frecuencia de salida",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "Hz",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.LCr",
+    "code": "LCr",
+    "path": [
+      "SUP"
+    ],
+    "label": "Corriente del motor",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "A",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.ULn",
+    "code": "ULn",
+    "path": [
+      "SUP"
+    ],
+    "label": "Tensión de red",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "V",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.tHr",
+    "code": "tHr",
+    "path": [
+      "SUP"
+    ],
+    "label": "Estado térmico del motor",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "%",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.tHd",
+    "code": "tHd",
+    "path": [
+      "SUP"
+    ],
+    "label": "Estado térmico del variador",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "%",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.HSU",
+    "code": "HSU",
+    "path": [
+      "SUP"
+    ],
+    "label": "Frecuencia máxima activa",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "Hz",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  },
+  {
+    "id": "SUP.rPF",
+    "code": "rPF",
+    "path": [
+      "SUP"
+    ],
+    "label": "Retorno del sensor PI",
+    "readonly": true,
+    "step": 0.1,
+    "unit": "%",
+    "source": {
+      "manual": "user",
+      "page": 31
+    }
+  }
+]
