@@ -8,8 +8,8 @@ import { CATALOG } from './configuration';
 import type { CatalogItem, CodeValue } from './configuration';
 import type { FaultCode } from './engine-types';
 import { DISPLAY_STATES, FAULTS, MENUS, PARAMETERS, manualLink } from './guide-content';
+import { catalogItem } from './simulator';
 import { LOGIC_INPUTS } from './engine-types';
-import { catalogItem } from './panel';
 import { useSimulator } from './ui';
 
 const ELEMENT_HELP: Readonly<Record<string, string>> = {
@@ -80,7 +80,7 @@ function Crumbs(props: { trail: readonly string[] }): JSX.Element {
 
 function ManualLink(props: { metadata: CatalogItem }): JSX.Element {
   const link = () => manualLink(props.metadata.source);
-  return <a href={encodeURI(link().file) + '#page=' + link().page} target="_blank">{link().label}</a>;
+  return <a href={link().url} target="_blank">{link().label}</a>;
 }
 
 function ParameterCard(props: { metadata: CatalogItem; draft: CodeValue | null; trail: readonly string[]; editing: boolean }): JSX.Element {

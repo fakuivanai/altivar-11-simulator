@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createPanelFixture } from '../helpers/panel-fixture.mjs';
 import { diagnosisLines } from '../../diagnosis.ts';
 import { manualLink, PARAMETERS, FAULTS } from '../../guide-content.ts';
+import documents from '../../manufacturer-documents.json' with { type: 'json' };
 const change = (sim, section, key, value) => assert.equal(sim.commitExternal(section, key, value), true);
 const text = sim => diagnosisLines(sim.state.config, sim.readings()).map(line => line[1]).join('\n');
 test('keypad draft cancellation, save flash and first-boot bFr', () => {
@@ -332,7 +333,7 @@ test('manufacturer PDF page mappings and model-bound explanations', () => {
     manual: 'user',
     page: 22
   }), {
-    file: 'Manual del fabricante.pdf',
+    url: documents.find(document => document.id === 'user').sourceUrl + '#page=57',
     page: 57,
     label: 'Manual, pág. 56'
   });

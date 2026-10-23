@@ -8,6 +8,7 @@ import { DrivePanel, PanelInfo } from './DrivePanel';
 import { GuideLayout } from './Guide';
 import { FullscreenButton, SoundToggle } from './HeaderControls';
 import { STAGE } from './layout';
+import { manualUrl } from './manuals';
 import { MotorCanvas, Readings, Settings } from './Panels';
 import { Schematic } from './Schematic';
 import { createSimulator } from './simulator';
@@ -21,7 +22,7 @@ function Header(): JSX.Element {
       <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}</div>
       <SoundToggle />
       <FullscreenButton />
-      <a href="Manual del fabricante.pdf#page=53" target="_blank">Manual</a>
+      <a href={manualUrl('user')} target="_blank" rel="noopener" title="Documento oficial. Sección española: página 53 del PDF. Requiere internet.">Manual</a>
     </header>
   );
 }

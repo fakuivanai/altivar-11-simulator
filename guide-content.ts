@@ -158,8 +158,4 @@ export const FAULTS: Readonly<Record<FaultCode, FaultText>> = {
   CrF: { name: 'Circuito de carga', detects: 'Falla del circuito de precarga del bus.', simulator: 'No se produce.', remedies: ['Sustituir el variador.'], logicReset: false, autoReset: false },
 };
 
-/** Spanish-section PDF page of the user guide, or technical manual PDF page. */
-export function manualLink(source: { manual: string; page: number }): { file: string; page: number; label: string } {
-  if (source.manual === 'user') return { file: 'Manual del fabricante.pdf', page: source.page + 35, label: 'Manual, pág. ' + (source.page + 34) };
-  return { file: 'Referencia del fabricante.pdf', page: source.page - 63, label: 'Manual técnico, pág. ' + source.page };
-}
+export { manualReference as manualLink } from './manuals';

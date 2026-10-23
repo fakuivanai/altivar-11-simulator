@@ -18,9 +18,12 @@
         68
       ],
       "panelPrinted": 56,
-      "panelPdf": 57
+      "panelPdf": 57,
+      "catalogToPdfOffset": 35,
+      "catalogToPrintedOffset": 34
     },
-    "unmodified": true
+    "unmodified": true,
+    "id": "user"
   },
   {
     "filename": "Referencia del fabricante.pdf",
@@ -40,8 +43,11 @@
         1,
         61
       ],
-      "printedToPdfOffset": -63
+      "printedToPdfOffset": -63,
+      "catalogToPdfOffset": -63,
+      "catalogToPrintedOffset": 0
     },
-    "unmodified": true
+    "unmodified": true,
+    "id": "technical"
   }
 ]
