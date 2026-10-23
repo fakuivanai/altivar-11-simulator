@@ -97,7 +97,14 @@ export const PARAMETERS: Readonly<Record<string, ParameterText>> = {
   'FUn.LOC': { text: 'Umbral de sobrecarga, en porcentaje de la corriente nominal del variador. Si la corriente lo supera durante tOL, el variador dispara OLC.' },
   'FUn.tOL': { text: 'Temporización de sobrecarga. Empieza al superar LOC y se cancela al bajar de LOC menos 10 % de la corriente nominal del variador. Sólo cuenta en régimen estable, con la consigna alcanzada. Cero desactiva la detección.' },
   'FUn.AP1': { text: 'Histéresis de consigna alcanzada durante la marcha con PI activo. El intervalo interior es AP1 menos 0,2 Hz. Se aumenta si el variador no llega a considerar la consigna alcanzada.' },
-  'FUn.LUL': { text: 'Umbral de subcarga, en porcentaje de la corriente nominal del variador. Si la corriente queda debajo durante tUL, el variador dispara ULF.', tip: 'Sirve para detectar una correa cortada o una bomba en vacío. Compare la corriente con distintas cargas antes de elegir LUL. El disparo exige corriente por debajo del umbral durante tUL.' },
+  'FUn.LUL': {
+    text: 'Umbral de subcarga, en porcentaje de la corriente nominal del variador. ' +
+      'Si la corriente queda debajo durante tUL, el variador dispara ULF.',
+    tip: 'Sirve para detectar una correa cortada o una bomba en vacío. Compare las lecturas antes de elegir LUL: ' +
+      'el motor también consume corriente magnetizante sin carga. Ensayo con la placa inicial: detenga el variador, ' +
+      'deje el par externo en cero, ajuste LUL a 90 % y tUL a 1 s y arranque con consigna de 50 Hz. ' +
+      'Restituya los ajustes después del ensayo.'
+  },
   'FUn.tUL': { text: 'Temporización de subcarga. Empieza al bajar de LUL y se cancela al superar LUL más 10 % de la corriente nominal del variador. Sólo cuenta en régimen estable. Cero desactiva la detección.' },
   'FUn.tLS': { text: 'Tiempo máximo funcionando en LSP. Pasado ese tiempo el motor se detiene, y vuelve a arrancar si la consigna supera LSP con la orden de marcha presente. Cero no limita el tiempo.' },
   'FUn.PI.PIF': { text: 'Realimentación del regulador PI. Asignarla activa la función.', choices: { nO: 'PI inactivo.', AI1: 'PI activo, realimentación en AI1. Se fuerza rrS = nO y LIA de PS2 = LI1.' } },
@@ -161,7 +168,13 @@ export const FAULTS: Readonly<Record<FaultCode, FaultText>> = {
   OLF: { name: 'Sobrecarga del motor', detects: 'El estado térmico calculado del motor superó 118 %.', simulator: 'Corriente sostenida por encima de la nominal: carga excesiva, eje bloqueado, una fase abierta o ItH mal ajustado.', remedies: ['Verificar los ajustes de la protección térmica (ItH) y la carga del motor.', 'Esperar que se enfríe antes de volver a arrancar.'], logicReset: true, autoReset: true },
   OHF: { name: 'Sobrecarga del variador', detects: 'El estado térmico del variador superó 118 %.', simulator: 'Corriente alta sostenida, temperatura ambiente alta, ventilación baja o frecuencia de conmutación alta.', remedies: ['Revisar la carga del motor, la ventilación del variador y el ambiente.', 'Esperar que se enfríe antes de volver a arrancar.'], logicReset: true, autoReset: true },
   OLC: { name: 'Sobrecarga de corriente', detects: 'La corriente superó LOC durante tOL en régimen estable.', simulator: 'Con la consigna alcanzada, corriente mayor que LOC durante tOL.', remedies: ['Revisar LOC y tOL en FUn.', 'Revisar la mecánica: desgaste, rozamiento, lubricación u obstáculos.'], logicReset: true, autoReset: true },
-  ULF: { name: 'Subcarga de corriente', detects: 'La corriente quedó por debajo de LUL durante tUL en régimen estable.', simulator: 'Con la consigna alcanzada, corriente menor que LUL durante tUL, por ejemplo con el par de carga en cero.', remedies: ['Revisar LUL y tUL en FUn.'], logicReset: true, autoReset: true },
+  ULF: {
+    name: 'Subcarga de corriente',
+    detects: 'La corriente quedó por debajo de LUL durante tUL en régimen estable.',
+    simulator: 'Con la consigna alcanzada, la corriente total debe quedar debajo de LUL durante tUL. ' +
+      'Al quitar la carga todavía circula corriente magnetizante; el umbral debe superar la lectura de régimen sin carga.',
+    remedies: ['Revisar LUL y tUL en FUn.'], logicReset: true, autoReset: true
+  },
   SOF: { name: 'Sobrevelocidad', detects: 'Sobrevelocidad. El fabricante indica inestabilidad o una carga arrastrante como posibles causas.', simulator: 'Más de 1,2 veces la velocidad síncrona correspondiente a la velocidad máxima seleccionada durante 0,3 s, por ejemplo con un par de carga negativo fuerte. Son un umbral y un tiempo del modelo.', remedies: ['Revisar los parámetros del motor, la ganancia y la estabilidad.', 'Si la carga arrastra al motor, agregar módulo y resistencia de frenado y revisar el dimensionamiento.'], logicReset: true, autoReset: false },
   PHF: { name: 'Falta de fase de red', detects: 'Pérdida de una fase de alimentación en equipos trifásicos.', simulator: 'No se produce: este variador es monofásico.', remedies: ['Revisar la conexión de potencia y los fusibles.', 'Comprobar que la red y el variador sean compatibles.'], logicReset: true, autoReset: true },
   CFF: { name: 'Configuración inválida', detects: 'La configuración guardada no es coherente.', simulator: 'No se produce en el uso normal: los archivos inválidos se rechazan al cargarlos.', remedies: ['Volver a la configuración de fábrica o a la guardada con FCS.'], logicReset: false, autoReset: false },
