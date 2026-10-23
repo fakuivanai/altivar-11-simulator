@@ -6,7 +6,8 @@
     "check": "tsc --noEmit",
     "build": "node build.mjs",
     "test": "node --import ./tests/register.mjs --test tests/unit/*.test.mjs",
-    "verify": "pnpm check && pnpm test && pnpm build"
+    "verify": "pnpm check && pnpm test && pnpm build && pnpm test:browser",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "solid-js": "1.9.17"
@@ -18,7 +19,8 @@
     "esbuild": "0.28.2",
     "typescript": "7.0.2",
     "parse5": "8.0.1",
-    "@types/node": "24.19.2"
+    "@types/node": "24.19.2",
+    "@playwright/test": "1.59.1"
   },
   "type": "module",
   "engines": {
