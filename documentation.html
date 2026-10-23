@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Documentación del simulador</title>
+<style>
+* { box-sizing: border-box; font-weight: 400; font-style: normal; }
+body { margin: 0; color: #222; background: #fff; font: 18px/1.55 Arial, Helvetica, sans-serif; }
+header, main, footer { max-width: 72rem; margin: auto; padding: 1.2rem; }
+header { border-bottom: 1px solid #aaa; }
+footer { border-top: 1px solid #aaa; }
+h1 { font-size: 2rem; line-height: 1.2; margin: .3rem 0 1rem; }
+h2 { font-size: 1.5rem; line-height: 1.3; margin: 2rem 0 .7rem; }
+h3 { font-size: 1.15rem; margin: 1.3rem 0 .4rem; }
+p { max-width: 75ch; margin: .7rem 0; }
+a { color: #245c76; text-underline-offset: .15em; }
+nav { display: flex; flex-wrap: wrap; gap: .5rem 1.3rem; }
+.contents { margin-top: 1rem; }
+li { margin: .4rem 0; }
+figure { margin: 1rem 0; }
+figcaption { margin-top: .6rem; max-width: 75ch; }
+.diagram, .table-scroll { overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 760px; height: auto; }
+svg text { font: 18px Arial, Helvetica, sans-serif; fill: #222; }
+svg .box { fill: #fff; stroke: #555; stroke-width: 1.5; }
+svg .power { fill: none; stroke: #245c76; stroke-width: 3; }
+svg .signal { fill: none; stroke: #555; stroke-width: 1.5; }
+svg .local { fill: none; stroke: #7b3294; stroke-width: 1.5; stroke-dasharray: 6 4; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; }
+th, td { border: 1px solid #aaa; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+caption { text-align: left; margin-bottom: .5rem; }
+.equation { overflow-x: auto; margin: 1rem 0; padding: .2rem 0; }
+math[display="block"] { text-align: left; margin: 0; font-size: 1.15em; }
+code { font: .95em monospace; }
+@media print { body { font-size: 11pt; } header, main, footer { padding: 0; } nav { display: none; } figure, math { break-inside: avoid; } .diagram svg { min-width: 0; } .table-scroll { overflow: visible; } a { color: #222; } }
+</style>
+</head>
+<body>
+<header>
+<h1>Documentación del simulador</h1>
+<nav aria-label="Páginas"><a href="index.html">Inicio</a><a href="Simulador de variador.html">Simulador</a><a href="Simulador de variador, guía de estudio.html">Guía de estudio</a><a href="Limitaciones del modelo.html">Limitaciones del modelo</a></nav>
+<nav class="contents" aria-label="Contenido"><a href="#funciones">Funciones</a><a href="#modelo">Modelo físico</a><a href="#control">Control</a><a href="#observar">Lecturas y registro</a><a href="#catalogo">Parámetros</a><a href="#fuentes">Fuentes</a></nav>
+</header>
+<main>
+<section id="funciones">
+<h2>Qué permite estudiar</h2>
+<p>El simulador relaciona la programación de un variador con la respuesta de un motor de inducción y su carga. Representa el panel y las funciones seleccionadas del ATV11HU09M2E. El catálogo al final identifica sus parámetros, condiciones de edición y referencias. Las ecuaciones físicas y los ajustes internos son una implementación didáctica propia.</p>
+<p>Se pueden ensayar mando por dos o tres hilos, inversión, referencias analógicas, velocidades preseleccionadas, rampas y modos de parada. También se representan el regulador PI de proceso, límites de corriente, inyección de continua, rearranque, captura de un motor en movimiento, memorias de parámetros, salidas y protecciones. La guía de estudio acompaña la ruta del panel y explica las condiciones de cada función.</p>
+<p>El banco permite cambiar alimentación, continuidad de los conductores, carga, inercia añadida, fricción, ventilación y temperatura ambiente. El cortocircuito y el freno externo permiten observar fallos y transitorios. Antes de comparar resultados con un equipo real, consulte las <a href="Limitaciones del modelo.html">aproximaciones y límites</a>.</p>
+</section>
+<section id="modelo">
+<h2>Cómo se conectan los modelos</h2>
+<figure>
+<div class="diagram">
+<svg viewBox="0 0 1120 620" role="img" aria-labelledby="system-title system-description" xmlns="http://www.w3.org/2000/svg">
+<title id="system-title">Energía, control y observación del sistema</title>
+<desc id="system-description">La red alimenta un rectificador, el capacitor del bus y un inversor promediado. Los flujos del motor producen par y movimiento. Corriente y bus realimentan el control. El registro observa los estados físicos. El detalle PWM es una reconstrucción separada sin realimentación.</desc>
+<defs>
+<marker id="power-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#245c76"/></marker>
+<marker id="signal-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#555"/></marker>
+<marker id="local-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7b3294"/></marker>
+</defs>
+<text x="25" y="60">Red monofásica</text>
+<rect class="box" x="25" y="80" width="225" height="90" rx="5"/>
+<text x="137" y="116" text-anchor="middle">Rectificador</text><text x="137" y="143" text-anchor="middle">y precarga</text>
+<rect class="box" x="300" y="80" width="160" height="90" rx="5"/>
+<text x="380" y="116" text-anchor="middle">Bus de continua</text><text x="380" y="143" text-anchor="middle">Capacitor</text>
+<rect class="box" x="510" y="80" width="170" height="90" rx="5"/>
+<text x="595" y="116" text-anchor="middle">Inversor</text><text x="595" y="143" text-anchor="middle">promediado</text>
+<rect class="box" x="740" y="80" width="220" height="90" rx="5"/>
+<text x="850" y="116" text-anchor="middle">Motor de inducción</text><text x="850" y="143" text-anchor="middle">Flujos y corrientes</text>
+<path class="power" d="M250 125 H300" marker-end="url(#power-arrow)"/>
+<path class="power" d="M460 125 H510" marker-start="url(#power-arrow)" marker-end="url(#power-arrow)"/>
+<path class="power" d="M680 125 H740" marker-start="url(#power-arrow)" marker-end="url(#power-arrow)"/>
+<rect class="box" x="740" y="255" width="220" height="90" rx="5"/>
+<text x="850" y="290" text-anchor="middle">Mecánica</text><text x="850" y="317" text-anchor="middle">Inercia, carga y freno</text>
+<path class="power" d="M850 170 V255" marker-start="url(#power-arrow)" marker-end="url(#power-arrow)"/>
+<text x="866" y="214">Par y velocidad</text>
+<rect class="box" x="25" y="255" width="335" height="90" rx="5"/>
+<text x="192" y="290" text-anchor="middle">Mando, rampas y V/f</text><text x="192" y="317" text-anchor="middle">PI de corriente y protecciones</text>
+<path class="signal" d="M360 290 H420 V215 H595 V170" marker-end="url(#signal-arrow)"/>
+<text x="430" y="247">Tensión y frecuencia</text>
+<path class="signal" d="M330 170 V215 H285 V255" marker-end="url(#signal-arrow)"/>
+<text x="185" y="207">Tensión del bus</text>
+<path class="signal" d="M960 105 H1020 V400 H325 V345" marker-end="url(#signal-arrow)"/>
+<text x="665" y="391">Corriente al control</text>
+<rect class="box" x="25" y="480" width="270" height="90" rx="5"/>
+<text x="160" y="515" text-anchor="middle">Estados térmicos</text><text x="160" y="542" text-anchor="middle">Motor y variador</text>
+<path class="signal" d="M325 400 H160 V480" marker-end="url(#signal-arrow)"/>
+<path class="signal" d="M75 480 V345" marker-end="url(#signal-arrow)"/>
+<rect class="box" x="420" y="480" width="260" height="90" rx="5"/>
+<text x="550" y="515" text-anchor="middle">Zoom PWM de 2 ms</text><text x="550" y="542" text-anchor="middle">Circuito R-L local</text>
+<path class="local" d="M655 170 V445 H550 V480" marker-end="url(#local-arrow)"/>
+<text x="385" y="437" fill="#7b3294">Instantánea del estado actual</text>
+<rect class="box" x="740" y="480" width="280" height="90" rx="5"/>
+<text x="880" y="515" text-anchor="middle">Registro físico</text><text x="880" y="542" text-anchor="middle">Corriente, flujo, par, eje y bus</text>
+<path class="signal" d="M960 150 H1080 V525 H1020" marker-end="url(#signal-arrow)"/>
+<path class="signal" d="M850 345 V480" marker-end="url(#signal-arrow)"/>
+<text x="860" y="454">Muestras</text>
+</svg>
+</div>
+<figcaption>Las flechas azules indican intercambio de energía. Las grises representan señales. El rectificador no devuelve energía a la red. El zoom recibe una instantánea y no modifica los estados físicos.</figcaption>
+</figure>
+<h3>Motor y circuito equivalente</h3>
+<p>Se usa un circuito equivalente por fase en estrella, con rotor referido al estator. Las tensiones de placa son valores eficaces entre líneas; las corrientes de placa son de conductor. Los vectores de dos componentes alfa y beta emplean una transformación de Clarke que conserva amplitudes.</p>
+<p>Las variables almacenadas son los enlaces de flujo del estator y rotor. Para rotor en cortocircuito y ejes estacionarios, las ecuaciones implementadas son:</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mtable columnalign="left"><mtr><mtd><mfrac><mrow><mi mathvariant="normal">d</mi><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">s</mi></msub></mrow><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">t</mi></mrow></mfrac><mo>=</mo><msub><mi mathvariant="normal">v</mi><mi mathvariant="normal">s</mi></msub><mo>−</mo><msub><mi mathvariant="normal">R</mi><mi mathvariant="normal">s</mi></msub><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">s</mi></msub></mtd></mtr><mtr><mtd><mfrac><mrow><mi mathvariant="normal">d</mi><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">r</mi></msub></mrow><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">t</mi></mrow></mfrac><mo>=</mo><mo>−</mo><msub><mi mathvariant="normal">R</mi><mi mathvariant="normal">r</mi></msub><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">r</mi></msub><mo>+</mo><mi mathvariant="normal">p</mi><mi mathvariant="normal">ω</mi><mi mathvariant="normal">J</mi><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">r</mi></msub></mtd></mtr></mtable></math></div>
+<p>Aquí p es el número de pares de polos, omega la velocidad mecánica y J el operador que gira un vector un cuarto de vuelta. Las inductancias acoplan ambos devanados:</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mo>[</mo><mtable><mtr><mtd><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">s</mi></msub></mtd></mtr><mtr><mtd><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">r</mi></msub></mtd></mtr></mtable><mo>]</mo></mrow><mo>=</mo><mrow><mo>[</mo><mtable><mtr><mtd><msub><mi mathvariant="normal">L</mi><mi mathvariant="normal">s</mi></msub></mtd><mtd><msub><mi mathvariant="normal">L</mi><mi mathvariant="normal">m</mi></msub></mtd></mtr><mtr><mtd><msub><mi mathvariant="normal">L</mi><mi mathvariant="normal">m</mi></msub></mtd><mtd><msub><mi mathvariant="normal">L</mi><mi mathvariant="normal">r</mi></msub></mtd></mtr></mtable><mo>]</mo></mrow><mrow><mo>[</mo><mtable><mtr><mtd><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">s</mi></msub></mtd></mtr><mtr><mtd><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">r</mi></msub></mtd></mtr></mtable><mo>]</mo></mrow></math></div>
+<p>El par y la energía magnética se calculan a partir de esos mismos estados:</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mtable columnalign="left"><mtr><mtd><msub><mi mathvariant="normal">T</mi><mi mathvariant="normal">e</mi></msub><mo>=</mo><mfrac><mn>3</mn><mn>2</mn></mfrac><mi mathvariant="normal">p</mi><mrow><mo>(</mo><msub><mi mathvariant="normal">ψ</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">α</mi></mrow></msub><msub><mi mathvariant="normal">i</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">β</mi></mrow></msub><mo>−</mo><msub><mi mathvariant="normal">ψ</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">β</mi></mrow></msub><msub><mi mathvariant="normal">i</mi><mrow><mi mathvariant="normal">s</mi><mi mathvariant="normal">α</mi></mrow></msub><mo>)</mo></mrow></mtd></mtr><mtr><mtd><msub><mi mathvariant="normal">W</mi><mi mathvariant="normal">m</mi></msub><mo>=</mo><mfrac><mn>3</mn><mn>4</mn></mfrac><mrow><mo>(</mo><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">s</mi></msub><mo>&#x22c5;</mo><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">s</mi></msub><mo>+</mo><msub><mi mathvariant="normal">ψ</mi><mi mathvariant="normal">r</mi></msub><mo>&#x22c5;</mo><msub><mi mathvariant="normal">i</mi><mi mathvariant="normal">r</mi></msub><mo>)</mo></mrow></mtd></mtr></mtable></math></div>
+<p>La base de estas ecuaciones es el <a href="https://ocw.mit.edu/courses/6-685-electric-machines-fall-2013/d834469bd6c3f56c6bec451d76176156_MIT6_685F13_chapter10.pdf">capítulo 10 de Máquinas eléctricas del MIT</a>. La <a href="https://www.mathworks.com/help/mcb/ref/inductionmotor.html">referencia de motor de inducción de MathWorks</a> también documenta la convención equivalente por fase.</p>
+<p>En modo estimado, la placa y supuestos de corriente en vacío y par máximo determinan un circuito pasivo. La comparación siguiente corresponde al circuito inicial; sus diferencias son residuos de la estimación. En el panel del motor se actualiza al cambiar la placa. También se pueden introducir resistencias e inductancias manuales.</p>
+<div class="table-scroll">{{CIRCUIT_FIT}}</div>
+<h3>Movimiento y carga</h3>
+<p>La inercia total suma la del rotor y la añadida. El par electromagnético acelera el eje; la fricción viscosa se opone a la velocidad. Una carga positiva es resistencia pasiva de magnitud constante: puede detener y sostener el eje, pero no hacerlo girar hacia atrás por sí sola. Una carga negativa lo arrastra en el sentido de giro, o en el sentido ordenado si parte del reposo.</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi mathvariant="normal">J</mi><mtext>total</mtext></msub><mfrac><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">ω</mi></mrow><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">t</mi></mrow></mfrac><mo>=</mo><msub><mi mathvariant="normal">T</mi><mi mathvariant="normal">e</mi></msub><mo>+</mo><msub><mi mathvariant="normal">T</mi><mtext>impulsor</mtext></msub><mo>−</mo><msub><mi mathvariant="normal">T</mi><mtext>resistente</mtext></msub><mo>−</mo><mi mathvariant="normal">b</mi><mi mathvariant="normal">ω</mi><mo>−</mo><msub><mi mathvariant="normal">T</mi><mtext>freno</mtext></msub></math></div>
+<p>J total es la inercia combinada y b la fricción viscosa. Los pares resistente y de freno toman el signo del movimiento. En reposo, la reacción equilibra el par aplicado hasta la capacidad disponible.</p>
+<p>El freno externo del eje tiene capacidad finita de tres veces el par nominal. Permite recorrido durante la frenada y sostiene el eje una vez detenido si alcanza su capacidad. Cambiar la inercia añadida durante la marcha conserva la velocidad instantánea; esa intervención supone intercambio de energía con el exterior.</p>
+<h3>Alimentación y energía</h3>
+<p>La red monofásica se rectifica en onda completa. Un circuito RC de precarga limita la carga inicial del capacitor; luego se puentea la resistencia de precarga. El bus alimenta al inversor y a una demanda auxiliar de control. Su energía es:</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi mathvariant="normal">E</mi><mi mathvariant="normal">C</mi></msub><mo>=</mo><mfrac><mn>1</mn><mn>2</mn></mfrac><mi mathvariant="normal">C</mi><msup><msub><mi mathvariant="normal">V</mi><mtext>bus</mtext></msub><mn>2</mn></msup></math></div>
+<p>El trabajo eléctrico del motor modifica esa energía. La regeneración devuelve energía al capacitor, puede elevar el bus y provocar sobretensión. El módulo opcional de frenado disipa energía en una resistencia. Las pérdidas de cobre se calculan con las corrientes y resistencias del motor. Una energía disponible insuficiente reduce la tensión aplicada antes de integrar el movimiento.</p>
+<p>La <a href="https://www.ti.com/lit/ug/tiduf73/tiduf73.pdf">referencia de precarga pasiva de Texas Instruments, sección 2.2.1</a>, fundamenta el comportamiento RC. La <a href="https://library.e.abb.com/public/20be376000f34dd6b9c513580cf56423/Technical_guide_No_8_3AFE64362534_RevC.pdf">guía de frenado eléctrico de ABB</a> explica el almacenamiento en el bus y la disipación mediante chopper y resistencia. Los valores de este simulador son supuestos didácticos.</p>
+<div class="table-scroll">{{MODEL_FACTS}}</div>
+</section>
+<section id="control">
+<h2>Control y protecciones</h2>
+<p>La consigna atraviesa las funciones habilitadas y las rampas. La excitación mantiene una relación V/f hasta la tensión nominal y agrega un refuerzo a baja frecuencia. Una compensación didáctica de deslizamiento usa el par calculado. La respuesta de frecuencia tiene una dinámica de segundo orden ajustada por ganancia y estabilidad.</p>
+<p>El limitador de corriente actúa mediante un PI sobre la tensión disponible. La inyección de continua usa otro PI para seguir la corriente solicitada en el conductor de alimentación, con uno o dos retornos. Ambos limitan la tensión y frenan la acumulación integral al saturarse; no asignan directamente una corriente ni un par. La limitación también adapta la frecuencia para recuperar un motor con deslizamiento elevado. Estos principios de PI se describen en <a href="https://imperix.com/doc/implementation/pi-controller">imperix TN105</a>; las ganancias elegidas aquí pertenecen al modelo.</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi mathvariant="normal">τ</mi><mfrac><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">θ</mi></mrow><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">t</mi></mrow></mfrac><mo>=</mo><mn>100</mn><msup><mrow><mo>(</mo><mfrac><mi mathvariant="normal">I</mi><msub><mi mathvariant="normal">I</mi><mtext>ref</mtext></msub></mfrac><mo>)</mo></mrow><mn>2</mn></msup><mo>−</mo><mi mathvariant="normal">θ</mi></math></div>
+<p>La protección del motor toma ItH como corriente de referencia; el índice referido al motor físico usa su corriente de placa. Ambos son índices, no mediciones térmicas.</p>
+<p>Las protecciones observan corriente, bus, velocidad, carga y estados térmicos. Estos últimos son acumuladores de primer orden excitados principalmente por el cuadrado de la corriente relativa. Sus constantes didácticas son 45 s para motor y 60 s para variador. El ambiente, la ventilación y la conmutación afectan al estado del variador. Los porcentajes térmicos no son temperaturas en grados Celsius.</p>
+</section>
+<section id="observar">
+<h2>Cómo interpretar las lecturas</h2>
+<p>La lectura de corriente usa una envolvente cuadrática filtrada con constante de 10 ms. Coincide con la corriente eficaz de conductor en alterna equilibrada. Con continua o desequilibrio se aplica una convención agregada; los indicadores por fase reconstruyen magnitudes según la topología. Para observar corrientes instantáneas con signo, use el registro físico.</p>
+<p>Registro conserva hasta 10 s de muestras del modelo promediado, tomadas cada 0,5 ms. Permite ver tensión y corriente, par y velocidad, o flujo y bus. La captura única se dispara por arranque, escalón de carga o fallo, reserva 20% previo con el historial disponible y 80% posterior, y queda retenida. El par de carga trazado es el ajuste del control, sin sumar la fricción viscosa.</p>
+<p>Las vistas 2 períodos y Zoom 2 ms reconstruyen un régimen permanente desde el estado actual. La primera muestra las corrientes fundamentales; el zoom agrega rizado mediante un circuito local R-L. Las tensiones PWM se sintetizan por portadora con inyección de secuencia cero. Ese cálculo no modifica el motor ni el bus. Su alcance se detalla en <a href="Limitaciones del modelo.html#ondas">las limitaciones del osciloscopio</a>.</p>
+<h3>Tiempo y archivos</h3>
+<p>El control avanza cada 5 ms. Motor, mecánica y bus se acoplan en pasos de 100 microsegundos mediante resolución implícita de punto medio. Para constantes eléctricas demasiado cortas se usa Euler hacia atrás y se contabiliza su disipación numérica. El dibujo dispone de un presupuesto de trabajo; si no alcanza, conserva el tiempo pendiente y muestra el atraso. Ocultar la página pausa el avance, sin recuperar luego el tiempo que estuvo oculta.</p>
+<p>Los archivos JSON guardan configuración y memorias, no una captura del estado físico. Cargarlos reinicia movimiento, flujo, carga del bus y calor acumulado. Un archivo anterior sin <code>motorElectrical</code> se normaliza a circuito estimado y lo informa. La placa y el circuito solo pueden editarse con salida desactivada y eje detenido, incluso si está en rueda libre.</p>
+</section>
+<section id="catalogo">
+<h2>Catálogo de parámetros</h2>
+<p>Esta tabla se genera desde el mismo catálogo que utiliza el panel. Las dependencias pueden ocultar un parámetro o impedir su edición según la configuración y la marcha. Las referencias oficiales ayudan a distinguir la función del equipo de su representación didáctica.</p>
+<div class="table-scroll">{{CATALOG_TABLE}}</div>
+</section>
+<section id="fuentes">
+<h2>Documentos del fabricante</h2>
+<p>Los manuales oficiales describen programación y conexiones del equipo. Las referencias técnicas anteriores fundamentan ecuaciones generales; no proporcionan los componentes internos ni la calibración de este simulador. Las páginas funcionan sin conexión; abrir las fuentes externas requiere internet.</p>
+<div>{{MANUAL_LINKS}}</div>
+</section>
+</main>
+<footer><nav aria-label="Volver"><a href="Simulador de variador.html">Volver al simulador</a><a href="Limitaciones del modelo.html">Leer las limitaciones</a><a href="index.html">Inicio</a></nav></footer>
+</body>
+</html>

@@ -44,3 +44,13 @@ test('Runtime downloads and undocumented document hosts are rejected', () => {
   files.set('index.html', '<a href="https://other.invalid/manual.pdf">Manual</a>');
   assert.throws(() => checkPages(files, [manual]), /undocumented external link/);
 });
+
+
+test('Explicit scientific references are permitted without weakening the runtime or manual contract', () => {
+  const files = pages();
+  const reference = 'https://science.invalid/equations.pdf';
+  files.set('Documentación del simulador.html', '<a href="' + reference + '">Source</a>');
+  assert.throws(() => checkPages(files, [manual]), /undocumented/);
+  assert.doesNotThrow(() => checkPages(files, [manual], [reference]));
+  assert.throws(() => checkPages(changeAll(files, '<div id="app">', '<img src="' + reference + '"><div id="app">'), [manual], [reference]), /runtime asset/);
+});

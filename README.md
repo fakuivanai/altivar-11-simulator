@@ -1,6 +1,6 @@
 # Altivar 11 simulator
 
-A Spanish classroom simulator of a variable frequency drive, with a projection view and a study guide. The model represents an ATV11HU09M2E, with a reduced induction-motor model for teaching.
+A Spanish classroom simulator of a variable frequency drive, with a projection view and a study guide. The model represents an ATV11HU09M2E, with a dynamic induction-motor model for teaching.
 
 The application builds into standalone HTML files. Download either simulator page and open it directly in a browser. It needs no server or runtime downloads. Manufacturer links lead to official PDF downloads and require internet. Page fragments are viewer hints; after downloading, use the indicated PDF page.
 
@@ -25,18 +25,21 @@ pnpm build
 pnpm test:browser
 ```
 
-`dist/` contains the projection page, study page, index and a compatibility manual redirect. It contains no source files, dependency directories or manufacturer PDFs. `BUILD_DIR` can select a different output directory.
+`dist/` contains the projection page, study page, model documentation, model limitations, index and a compatibility manual redirect. Keep these HTML files together to follow local documentation links. It contains no source files, dependency directories or manufacturer PDFs. `BUILD_DIR` can select a different output directory.
 
 ## Model and structure
 
-- `engine.ts` owns motor dynamics and electrical output. `engine-types.ts` describes AC, DC and off as distinct output states. `electrical.ts` holds the shared conductor topology.
-- `configuration.ts` validates complete configurations and parameter dependencies. Invalid imports leave the current state intact.
-- `panel.ts` owns keypad and menu behavior without browser dependencies. `simulator.ts` connects it to configuration, browser files and the animation clock.
-- `waveforms.ts`, `motor-view.ts` and `motor-sound.ts` render the model's output. They do not control the physics.
-- `layout.ts` holds fixed schematic placement. Solid components provide the controls and study view.
-- `manufacturer-documents.json` holds official document links and page mappings. [Fuentes.md](Fuentes.md) documents manual references, equations and teaching assumptions.
+- `engine.ts` owns command, ramp and protection behavior. `physical-plant.ts` couples shaft work, motor flux, current regulation and the DC bus.
+- `motor-dynamics.ts` integrates four stationary-frame flux states. `motor-circuit.ts` estimates an editable passive circuit and reports its fit residuals.
+- `dc-link.ts`, `shaft-brake.ts` and `drive-control.ts` implement rectifier/precharge energy, finite shaft restraint and voltage based current loops.
+- `configuration.ts` validates configurations and parameter dependencies. Invalid imports leave the current state intact. Motor nameplate and circuit edits require a stopped shaft and inactive output.
+- `panel.ts` owns keypad and menu behavior. `simulator.ts` connects it to browser files, a bounded frame budget and the animation clock.
+- `scope-history.ts` records physical transients independently of rendering. `waveforms.ts` reconstructs periodic PWM and a separate local switching-current zoom. `motor-view.ts` and `motor-sound.ts` consume model output.
+- `manufacturer-documents.json` holds official links and page mappings. `documentation.html` and `limitations.html` explain features, equations, a system diagram and limitations in Spanish. `documentation.ts` generates their catalog, circuit-fit and model-value tables from executable sources. [Fuentes.md](Fuentes.md) records source decisions.
 
-Configuration files retain the `variador-aula` version 1 format. The reduced model has compressed thermal timing and approximate single-phasing, bus energy and DC injection. The stated assumptions are part of the lesson, rather than claims about proprietary drive firmware.
+The simulator uses a 100 us electrical step and 5 ms control step. It retains flux and capacitor energy through transients and regulates current through voltage. Its estimated motor parameters and control algorithms are teaching choices. Thermal indices have compressed time constants and do not represent measured temperatures. See the generated limitations page before comparing behavior with a particular drive or motor.
+
+Configuration files retain the `variador-aula` version 1 format. The optional legacy field `motorElectrical` is normalized to `{ "mode": "estimated" }` when absent. New exports state the estimate or explicit manual circuit parameters. Imports reset the dynamic session; they do not restore moving flux, bus charge or a scope capture.
 
 ## Browser console
 

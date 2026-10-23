@@ -23,6 +23,7 @@ function Header(): JSX.Element {
       <SoundToggle />
       <FullscreenButton />
       <a id="manufacturer-manual" href={manualUrl('user')} target="_blank" rel="noopener" title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
+      <a id="model-documentation" href="Documentación del simulador.html" target="_blank" rel="noopener" title="Funciones, modelos y supuestos del simulador">Modelo</a>
     </header>
   );
 }

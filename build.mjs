@@ -72,10 +72,12 @@ const index = `<!doctype html>
 <title>Simulador de variador</title>
 <style>body{margin:2rem;font:20px/1.5 Arial,sans-serif;color:#222}main{max-width:48rem}a{color:#245c76}li{margin:1rem 0}</style>
 <main><h1>Simulador de variador de frecuencia</h1>
-<p>Modelo didáctico de un ATV11HU09M2E. Las aproximaciones del modelo se explican en la guía.</p>
+<p>Modelo didáctico de un ATV11HU09M2E. Los modelos y sus supuestos se explican en la documentación.</p>
 <ul><li><a href="Simulador de variador.html">Abrir el simulador para proyección</a></li>
-<li><a href="Simulador de variador, guía de estudio.html">Abrir la guía de estudio</a></li></ul>
-<p>Ambas páginas se pueden descargar y abrir sin conexión.</p>
+<li><a href="Simulador de variador, guía de estudio.html">Abrir la guía de estudio</a></li>
+<li><a href="Documentación del simulador.html">Cómo funciona el simulador</a></li>
+<li><a href="Limitaciones del modelo.html">Limitaciones del modelo</a></li></ul>
+<p>Las páginas se pueden descargar y abrir sin conexión. Conserve los HTML juntos para seguir los enlaces entre ellos.</p>
 <p><a href="${escape(userUrl)}">Descargar manual oficial del fabricante</a>. La sección española comienza en la página 53 del PDF, impresa 52. Su consulta requiere internet.</p></main>
 </html>
 `;
@@ -87,13 +89,22 @@ const manual = `<!doctype html>
 <p>Los documentos del fabricante requieren internet.</p>
 <p><a href="Simulador de variador.html">Volver al simulador</a></p></html>
 `;
+// Build-time TypeScript is bundled independently; documentation ships no script.
+const documentationBuild = await build({ absWorkingDir: root,
+  entryPoints: [source('documentation.ts')], bundle: true, write: false,
+  platform: 'node', format: 'esm', target: 'node24', logLevel: 'silent' });
+const docs = await import('data:text/javascript;base64,' + Buffer.from(documentationBuild.outputFiles[0].text).toString('base64'));
+const documentation = docs.renderDocumentation(await readFile(source('documentation.html'), 'utf8'));
+const limitations = await readFile(source('limitations.html'), 'utf8');
 const pages = new Map([
   ['index.html', index],
   ['Simulador de variador.html', html],
   ['Simulador de variador, guía de estudio.html', guideHtml],
   ['Manual del simulador de variador.html', manual],
+  [docs.DOCUMENTATION_PAGE, documentation],
+  [docs.LIMITATIONS_PAGE, limitations],
 ]);
-checkPages(pages, documents.map(item => item.sourceUrl));
+checkPages(pages, documents.map(item => item.sourceUrl), docs.DOCUMENTATION_REFERENCES);
 const existing = await readdir(destination).catch(error => {
   if (error.code === 'ENOENT') return [];
   throw error;

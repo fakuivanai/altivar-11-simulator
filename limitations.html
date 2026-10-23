@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Limitaciones del modelo</title>
+<style>
+* { box-sizing: border-box; font-weight: 400; font-style: normal; }
+body { margin: 0; color: #222; background: #fff; font: 18px/1.55 Arial, Helvetica, sans-serif; }
+header, main, footer { max-width: 68rem; margin: auto; padding: 1.2rem; }
+header { border-bottom: 1px solid #aaa; }
+footer { border-top: 1px solid #aaa; }
+h1 { font-size: 2rem; line-height: 1.2; margin: .3rem 0 1rem; }
+h2 { font-size: 1.5rem; line-height: 1.3; margin: 2rem 0 .7rem; }
+p { max-width: 75ch; margin: .7rem 0; }
+a { color: #245c76; text-underline-offset: .15em; }
+nav { display: flex; flex-wrap: wrap; gap: .5rem 1.3rem; }
+.equation { overflow-x: auto; margin: 1rem 0; padding: .2rem 0; }
+math[display="block"] { text-align: left; margin: 0; font-size: 1.15em; }
+@media print { body { font-size: 11pt; } header, main, footer { padding: 0; } nav { display: none; } math { break-inside: avoid; } a { color: #222; } }
+</style>
+</head>
+<body>
+<header>
+<h1>Limitaciones del modelo</h1>
+<nav aria-label="Páginas"><a href="index.html">Inicio</a><a href="Simulador de variador.html">Simulador</a><a href="Simulador de variador, guía de estudio.html">Guía de estudio</a><a href="Documentación del simulador.html">Documentación</a></nav>
+</header>
+<main>
+<p>El simulador permite relacionar programación, corrientes, flujo y movimiento. Sus resultados dependen de un circuito y controles didácticos. Para interpretar una diferencia con un equipo real, conviene identificar qué magnitud se modela, cómo se mide y qué fenómenos quedaron fuera.</p>
+<section>
+<h2>El circuito estimado no es un ensayo del motor</h2>
+<p>La placa no determina por sí sola las cinco resistencias e inductancias equivalentes. La estimación supone dispersiones iguales, una corriente en vacío de 0,35 veces la nominal y un deslizamiento de par máximo de cuatro veces el nominal. Prioriza esos objetivos y el par nominal.</p>
+<p>Un circuito pasivo no reproduce necesariamente, a la vez, la corriente nominal, el factor de potencia y una corriente de rotor bloqueado supuesta de seis veces la nominal. La tabla de diagnóstico muestra valores alcanzados y residuos. La placa no se modifica para ocultarlos. Los valores manuales permiten explorar otros circuitos, pero requieren información independiente para representar un motor particular.</p>
+<p>Con archivos anteriores, el circuito puede calcular corrientes distintas del modelo algebraico previo. Una configuración antes estable puede alcanzar umbrales ULF u OLC; revise sus ajustes y retardos al reutilizarla.</p>
+</section>
+<section>
+<h2>Qué ocurre al abrir un conductor</h2>
+<p>Las restricciones eléctricas actúan sobre las corrientes del modelo. Con un conductor abierto quedan dos corrientes opuestas; con menos de dos conectados no hay circuito de estator. El flujo del rotor continúa evolucionando y puede inducir tensión en bobinas abiertas.</p>
+<p>La apertura proyecta instantáneamente la componente de corriente de estator que la nueva conexión prohíbe. La energía de dispersión retirada se contabiliza como disipación ideal del contacto. No se resuelven el arco, los diodos del inversor ni la sobretensión que produciría una apertura física. La continuidad del flujo del rotor no implica continuidad de toda corriente de estator en esta idealización.</p>
+</section>
+<section>
+<h2>Fenómenos eléctricos omitidos</h2>
+<p>Las inductancias son lineales y constantes. No hay saturación, pérdidas en el hierro, efecto pelicular ni variación de resistencias con temperatura. La conversión conserva las pérdidas de cobre y los intercambios de energía incluidos, pero eso no constituye un cálculo completo de rendimiento.</p>
+<p>El inversor principal aplica tensión promediada. Se omiten tiempos muertos, caídas de semiconductores, cables, reflexiones y sobretensiones de conmutación. Tampoco se modelan aislamiento del motor, corrientes de rodamientos ni compatibilidad electromagnética. El rectificador, la precarga y el frenado resistivo usan componentes concentrados y valores supuestos.</p>
+</section>
+<section id="ondas">
+<h2>Tres vistas con distinto significado</h2>
+<p>Registro conserva muestras del transitorio físico promediado. Su intervalo de 0,5 ms no resuelve pulsos PWM. La reducción de puntos conserva extremos para dibujar; la pantalla no sustituye una adquisición instrumental de mayor ancho de banda.</p>
+<p>Las vistas periódicas congelan el punto de operación. No muestran el arranque que ocurrió antes ni la fase eléctrica exacta de ese transitorio. El zoom calcula por separado el rizado alrededor de la corriente fundamental, con resistencia de estator y dispersión transitoria:</p>
+<div class="equation"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><msub><mi mathvariant="normal">L</mi><mi mathvariant="normal">σ</mi></msub><mfrac><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">δ</mi><mi mathvariant="normal">i</mi></mrow><mrow><mi mathvariant="normal">d</mi><mi mathvariant="normal">t</mi></mrow></mfrac><mo>+</mo><msub><mi mathvariant="normal">R</mi><mi mathvariant="normal">s</mi></msub><mi mathvariant="normal">δ</mi><mi mathvariant="normal">i</mi><mo>=</mo><msub><mi mathvariant="normal">v</mi><mtext>PWM</mtext></msub><mo>−</mo><mover><mi mathvariant="normal">v</mi><mo>¯</mo></mover></math></div>
+<p>El flujo y la fundamental permanecen congelados en ese cálculo. El estado de rizado se lleva de una portadora a la siguiente; la integración previa se limita a 512 portadoras. Si la constante L/R es larga, queda incertidumbre en la condición inicial. El zoom no realimenta corriente, par, pérdidas ni bus del modelo principal.</p>
+</section>
+<section>
+<h2>Corrientes mostradas y calentamiento</h2>
+<p>La lectura general es una envolvente agregada con filtrado de 10 ms. En alterna equilibrada coincide con el valor eficaz de conductor. En continua y desequilibrio no equivale a medir por separado el valor eficaz temporal de cada fase. Las magnitudes de los conductores se reconstruyen desde esa envolvente y la conexión; el registro conserva en cambio sus corrientes instantáneas con signo.</p>
+<p>El desequilibrio indicado usa esas magnitudes reconstruidas. La inyección de continua toma el primer conductor conectado como alimentación y reparte retornos; es una topología didáctica. Los estados térmicos son índices de primer orden, con tiempos comprimidos de 45 y 60 s. No predicen temperatura de bobinados, carcasa ni componentes, ni tiempos certificados de disparo.</p>
+</section>
+<section>
+<h2>Carga, controles y señales</h2>
+<p>La carga positiva es resistencia pasiva de Coulomb, y la negativa arrastra en el sentido elegido. No representan una bomba, elevador o transmisión completos. El freno del eje tiene capacidad supuesta de tres veces el par nominal. Al cambiar instantáneamente la inercia añadida se conserva velocidad; la energía cinética cambia por intervención externa, no por trabajo eléctrico calculado durante ese instante.</p>
+<p>V/f, compensación de deslizamiento, dinámica de frecuencia, PI y protecciones reproducen comportamientos elegidos para enseñanza. No hay calibración contra firmware real. El PI de proceso toma AI1 como realimentación impuesta por el usuario; no existe una planta física adicional de presión, caudal o nivel que cierre ese lazo.</p>
+<p>La salida DO y el relé son señales ideales, sin carga, impedancia ni tiempos de conmutación de contactos. El audio es una síntesis artificial asociada al estado de salida y al giro. No predice ruido, vibración ni potencia acústica de un conjunto real.</p>
+</section>
+<p>Las ecuaciones, supuestos numéricos y documentos de referencia se reúnen en la <a href="Documentación del simulador.html#modelo">documentación del modelo</a>. El manual del fabricante sigue siendo la referencia para programación, conexiones y condiciones del equipo real.</p>
+</main>
+<footer><nav aria-label="Volver"><a href="Documentación del simulador.html">Documentación</a><a href="Simulador de variador.html">Volver al simulador</a><a href="index.html">Inicio</a></nav></footer>
+</body>
+</html>
