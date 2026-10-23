@@ -95,6 +95,18 @@ export interface MotorCircuitEstimate {
   readonly circuit: MotorCircuit;
   readonly parameters: MotorCircuitParameters;
   readonly rated: MotorOperatingPoint;
+  readonly noLoad: MotorOperatingPoint;
+  readonly locked: MotorOperatingPoint;
+  readonly breakdown: MotorOperatingPoint;
+  readonly lossBalance: {
+    readonly inputPower: number;
+    readonly shaftPower: number;
+    readonly airGapPower: number;
+    readonly statorCopperLoss: number;
+    readonly rotorCopperLoss: number;
+    readonly efficiency: number;
+    readonly residual: number;
+  };
   readonly fits: {
     readonly ratedTorque: MotorCircuitFit;
     readonly ratedCurrent: MotorCircuitFit;
@@ -106,11 +118,18 @@ export interface MotorCircuitEstimate {
   readonly warnings: readonly string[];
 }
 const bounded = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
-/** Deterministic teaching estimate, not parameter identification from measurements.
- * Priorities: rated shaft torque/slip, no-load 0.35 In, breakdown slip 4 sn.
- * Equal leakage inductances and Rs=0.05*(Vphase/In) are explicit assumptions.
- * Six-times locked current, nameplate current and cos(phi) are diagnostics, not
- * independent scales. A passive five-parameter circuit cannot generally fit all.
+/** Nameplate fit of a passive five-parameter T circuit, not identification.
+ * Pin=sqrt(3)*V*In*cos(phi), Pgap=Pshaft/(1-sn), Rs=(Pin-Pgap)/(3*In^2).
+ * Thus every unspecified loss is represented as effective stator copper loss;
+ * iron, friction and windage are not separately identified by this model.
+ *
+ * Equal leakage is the conventional unknown-design split described by IITG:
+ * https://www.iitg.ac.in/cseweb/vlab/virtual-electrical-machine/Theory_blockr.html
+ * Each leakage reactance starts at 0.1 pu on Vphase/In, a generic prior near
+ * EPRI OpenDSS's 0.106/0.12 pu defaults, not data from the simulated motor:
+ * https://opendss.epri.com/Properties8.html
+ * It is reduced when necessary to leave a positive magnetizing susceptance.
+ * No-load, locked current and breakdown-slip references are diagnostics only.
  */
 export function estimateMotorCircuit(motor: Readonly<MotorSpecification>): MotorCircuitEstimate {
   const { voltage, frequency, current, speedRPM, poles, powerKW, cosPhi } = motor;
@@ -118,40 +137,59 @@ export function estimateMotorCircuit(motor: Readonly<MotorSpecification>): Motor
     || !Number.isInteger(poles) || poles < 2 || poles > 12 || poles % 2 || speedRPM >= 120 * frequency / poles || cosPhi > 1)
     throw new RangeError('Motor nameplate must have positive values and sub-synchronous rated speed.');
   const polePairs = poles / 2, w = 2 * Math.PI * frequency, omega = speedRPM * Math.PI / 30;
-  const nominalSlip = 1 - polePairs * omega / w, targetSlip = 4 * nominalSlip;
-  const phaseVoltage = voltage / Math.sqrt(3), targetNoLoad = 0.35 * current;
-  const Rs = bounded(0.05 * phaseVoltage / current, ...MOTOR_CIRCUIT_RANGES.Rs);
-  const total = Math.sqrt(Math.max((phaseVoltage / targetNoLoad) ** 2 - Rs * Rs, 0)) / w;
-  const targetTorque = powerKW * 1000 / omega;
-  const candidate = (leakage: number): MotorCircuit => {
-    const Lm = bounded(total - leakage, ...MOTOR_CIRCUIT_RANGES.Lm);
-    const zth = parallel({ re: Rs, im: w * leakage }, { re: 0, im: w * Lm });
-    const Rr = bounded(targetSlip * Math.hypot(zth.re, zth.im + w * leakage), ...MOTOR_CIRCUIT_RANGES.Rr);
-    return makeMotorCircuit({ Rs, Rr, Lls: leakage, Llr: leakage, Lm }, polePairs);
-  };
-  let low: number = MOTOR_CIRCUIT_RANGES.Lls[0];
-  let high = bounded(total * 0.95, low, MOTOR_CIRCUIT_RANGES.Lls[1]);
-  // Increasing equal leakage lowers rated torque. Endpoint clipping is reported.
-  for (let iteration = 0; iteration < 64; iteration++) {
-    const middle = (low + high) / 2;
-    if (steadyStateMotor(candidate(middle), voltage, frequency, omega).torque > targetTorque) low = middle;
-    else high = middle;
-  }
-  const circuit = candidate((low + high) / 2), rated = steadyStateMotor(circuit, voltage, frequency, omega);
+  const nominalSlip = 1 - polePairs * omega / w, phaseVoltage = voltage / Math.sqrt(3);
+  const impedance = phaseVoltage / current;
+  const inputPower = Math.sqrt(3) * voltage * current * cosPhi;
+  const shaftPower = powerKW * 1000, airGapPower = shaftPower / (1 - nominalSlip);
+  const Rs = bounded((inputPower - airGapPower) / (3 * current * current), ...MOTOR_CIRCUIT_RANGES.Rs);
+  // The rated current phasor fixes the input impedance. After Rs and Xls,
+  // invert its parallel branch to recover positive Rr/sn and Xm analytically.
+  // Range-limited/inconsistent plates retain a passive circuit and report residuals.
+  const branchResistance = Math.max(impedance * cosPhi - Rs, Number.EPSILON * impedance);
+  const ratedReactance = Math.max(impedance * Math.sqrt(1 - cosPhi * cosPhi),
+    4 * w * MOTOR_CIRCUIT_RANGES.Lls[0]);
+  const leakage = bounded(Math.min(.1 * impedance, ratedReactance / 4) / w, ...MOTOR_CIRCUIT_RANGES.Lls);
+  const leakageReactance = w * leakage, branchReactance = ratedReactance - leakageReactance;
+  const square = branchResistance * branchResistance + branchReactance * branchReactance;
+  const conductance = branchResistance / square;
+  const discriminant = Math.max(0, 1 - 4 * conductance * conductance * leakageReactance * leakageReactance);
+  const rotorRatedResistance = (1 + Math.sqrt(discriminant)) / (2 * conductance);
+  const magnetizingSusceptance = branchReactance / square
+    - leakageReactance / (rotorRatedResistance * rotorRatedResistance + leakageReactance * leakageReactance);
+  const circuit = makeMotorCircuit({ Rs,
+    Rr: bounded(nominalSlip * rotorRatedResistance, ...MOTOR_CIRCUIT_RANGES.Rr),
+    Lls: leakage, Llr: leakage,
+    Lm: bounded(1 / (w * magnetizingSusceptance), ...MOTOR_CIRCUIT_RANGES.Lm),
+  }, polePairs);
+  const rated = steadyStateMotor(circuit, voltage, frequency, omega);
+  const noLoad = steadyStateMotor(circuit, voltage, frequency, w / polePairs);
+  const locked = steadyStateMotor(circuit, voltage, frequency, 0);
+  const peakSlip = breakdownSlip(circuit, frequency);
+  const breakdown = steadyStateMotor(circuit, voltage, frequency, w / polePairs * (1 - peakSlip));
   const fit = (target: number, achieved: number): MotorCircuitFit => ({ target, achieved, relativeError: (achieved - target) / target });
   const fits = {
-    ratedTorque: fit(targetTorque, rated.torque), ratedCurrent: fit(current, rated.current),
+    ratedTorque: fit(shaftPower / omega, rated.torque), ratedCurrent: fit(current, rated.current),
     powerFactor: fit(cosPhi, rated.powerFactor),
-    noLoadCurrent: fit(targetNoLoad, steadyStateMotor(circuit, voltage, frequency, w / polePairs).current),
-    lockedCurrent: fit(6 * current, steadyStateMotor(circuit, voltage, frequency, 0).current),
-    breakdownSlip: fit(targetSlip, breakdownSlip(circuit, frequency)),
+    noLoadCurrent: fit(.35 * current, noLoad.current),
+    lockedCurrent: fit(6 * current, locked.current),
+    breakdownSlip: fit(4 * nominalSlip, peakSlip),
   };
-  const warnings: string[] = [];
-  if (Math.abs(fits.ratedTorque.relativeError) > 0.02 || Math.abs(fits.noLoadCurrent.relativeError) > 0.02 || Math.abs(fits.breakdownSlip.relativeError) > 0.02)
-    warnings.push('The nameplate and assumed torque/current shape exceed the supported passive circuit fit; see achieved values.');
-  if (Math.abs(fits.ratedCurrent.relativeError) > 0.1 || Math.abs(fits.powerFactor.relativeError) > 0.1 || Math.abs(fits.lockedCurrent.relativeError) > 0.1)
-    warnings.push('Rated current, power factor and six-times locked current are not simultaneously fitted; torque, no-load current and breakdown slip take priority.');
-  if (powerKW * 1000 / (1 - nominalSlip) >= Math.sqrt(3) * voltage * current * cosPhi)
-    warnings.push('Rated shaft power/slip require more air-gap power than the stated electrical input.');
-  return { circuit, parameters: circuitParameters(circuit), rated, fits, warnings };
+  const lossBalance = {
+    inputPower: rated.inputPower, shaftPower: rated.torque * omega,
+    airGapPower: rated.torque * omega + rated.rotorCopperLoss,
+    statorCopperLoss: rated.statorCopperLoss, rotorCopperLoss: rated.rotorCopperLoss,
+    efficiency: rated.inputPower > 0 ? rated.torque * omega / rated.inputPower : 0,
+    residual: rated.inputPower - rated.torque * omega - rated.statorCopperLoss - rated.rotorCopperLoss,
+  };
+  const warnings: string[] = [
+    'The rated fit assigns all loss not fixed by slip to effective stator copper loss; iron and mechanical losses were not measured.',
+    'No-load 0.35 In, locked current 6 In and breakdown slip 4 sn are unfitted diagnostic references, not measured ratings.',
+  ];
+  if (Math.abs(fits.ratedTorque.relativeError) > .02 || Math.abs(fits.ratedCurrent.relativeError) > .02 || Math.abs(fits.powerFactor.relativeError) > .02)
+    warnings.push('The stated ratings exceed the positive circuit parameter ranges or passive loss balance; see achieved rated values.');
+  if (airGapPower >= inputPower)
+    warnings.push('Rated shaft power/slip require at least the stated electrical input before stator copper loss.');
+  if (breakdown.torque < 2 * rated.torque || Math.abs(fits.lockedCurrent.relativeError) > .1)
+    warnings.push('This all-copper-loss fit does not reproduce both a two-times breakdown torque and six-times locked current; loss and locked-rotor tests are needed to identify that shape.');
+  return { circuit, parameters: circuitParameters(circuit), rated, noLoad, locked, breakdown, lossBalance, fits, warnings };
 }

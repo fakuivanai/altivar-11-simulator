@@ -161,6 +161,27 @@ export class InductionMotorDynamics {
       this.sb = k * this.rb + sigma * pb;
       this.connection = mask;
     }
+    if (excitation.mode === 'off' && omega === 0) {
+      // With the stator open, psi_r'=-Rr/Lr*psi_r exactly. Preserve remanence
+      // and induced coil voltage while avoiding repeated all-linear solves.
+      const gamma = c.rotorResistance / c.rotorInductance;
+      const stored = .75 * (this.ra * this.ra + this.rb * this.rb) / c.rotorInductance;
+      const decay = Math.exp(-gamma * seconds);
+      const dissipated = stored * -Math.expm1(-2 * gamma * seconds);
+      this.ra *= decay; this.rb *= decay; this.sa = k * this.ra; this.sb = k * this.rb;
+      const va = -k * gamma * this.ra, vb = -k * gamma * this.rb;
+      const out = this.sample;
+      out.time += seconds; out.electricalAngle = this.angle;
+      out.torque = out.instantaneousTorque = out.currentMagnitude = out.currentRms = out.inputPower = out.reactivePower = 0;
+      out.statorCopperLoss = out.numericalLoss = 0;
+      out.phaseCurrent.U = out.phaseCurrent.V = out.phaseCurrent.W = 0;
+      out.phaseVoltage.U = va; out.phaseVoltage.V = -va / 2 + SQRT3 * vb / 2; out.phaseVoltage.W = -va / 2 - SQRT3 * vb / 2;
+      out.statorFlux.alpha = this.sa; out.statorFlux.beta = this.sb; out.rotorFlux.alpha = this.ra; out.rotorFlux.beta = this.rb;
+      out.rotorCopperLoss = seconds > 0 ? dissipated / seconds : 2 * gamma * stored;
+      out.magneticEnergy = .75 * (this.ra * this.ra + this.rb * this.rb) / c.rotorInductance;
+      out.switchingLoss = switchingLoss;
+      return out;
+    }
     let dcA = 0, dcB = 0;
     if (excitation.mode === 'dc') {
       dcA = (2 * excitation.voltages.U - excitation.voltages.V - excitation.voltages.W) / 3;

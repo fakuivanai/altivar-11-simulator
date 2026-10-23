@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { VFDDrive as Engine } from '../../engine.ts';
 import CATALOG from '../../catalog-final.json' with { type: 'json' };
-import { estimateMotorCircuit } from '../../motor-circuit.ts';
+import { estimateMotorCircuit, steadyStateMotor } from '../../motor-circuit.ts';
 const clone = x => JSON.parse(JSON.stringify(x));
 function config() {
   return {
@@ -46,6 +46,11 @@ function config() {
 }
 function setup(mutator = () => {}) {
   const c = config();
+  // Isolate command/reference behavior from optional load alarms. Tests of
+  // those alarms enable them explicitly. Factory-bench regressions live separately.
+  c.parameters['FUn.tOL'] = c.parameters['FUn.tUL'] = 0;
+  // The heavier control fixture needs additional configured IR boost with its inferred Rs.
+  c.parameters['drC.UFr'] = 75;
   mutator(c);
   const drive = new Engine(c);
   // Operational tests start with a charged bus; power-up behavior has its own cases.
@@ -84,13 +89,16 @@ test('Cold power-up precharges before energizing and preserves bus charge on sup
   drive.advance(.005);
   assert(drive.state.dcBus > 0 && drive.state.dcBus < charged);
 });
-test('Factory run, forward/reverse and read-only monitors', () => {
+test('Configured run, forward/reverse and read-only monitors', () => {
   const e = setup();
   start(e);
   assert(e.state.rpm > 1400);
   assert.equal(e.state.fault, null);
   const estimated = estimateMotorCircuit(e.config.motor);
-  assert(e.state.current > estimated.fits.noLoadCurrent.achieved);
+  // Compare at the actual voltage/frequency, not at the rated reference point.
+  const synchronousOmega = 2 * Math.PI * e.state.frequency / estimated.circuit.polePairs;
+  const noLoad = steadyStateMotor(estimated.circuit, e.state.voltage, e.state.frequency, synchronousOmega);
+  assert(e.state.current > noLoad.current);
   assert(e.state.current < estimated.rated.current);
   const monitor = e.monitors();
   assert(monitor.rFr > 50);
@@ -290,10 +298,14 @@ test('Attached inertia, friction and mechanical load affect current/speed', () =
 });
 test('Current overload/underload timers, hysteresis and reset', () => {
   const a = setup(c => {
-    c.mechanical.torque = 2.3;
-    c.parameters['FUn.LOC'] = 70;
+    c.mechanical.torque = .8;
+    c.parameters['FUn.LOC'] = 95;
+    c.parameters['FUn.tOL'] = 1;
   });
-  start(a, 12);
+  start(a, 6);
+  assert.equal(a.state.fault, null);
+  updateConfig(a, candidate => candidate.mechanical.torque = 2);
+  a.advance(2);
   assert.equal(a.state.fault, 'OLC');
   updateConfig(a, candidate => candidate.mechanical.torque = 1.2);
   assert(a.resetFault());
@@ -303,11 +315,16 @@ test('Current overload/underload timers, hysteresis and reset', () => {
   a.advance(.01);
   start(a);
   assert.equal(a.state.fault, null);
-  const u = setup(c => c.mechanical.torque = .1);
+  const u = setup(c => {
+    c.mechanical.torque = .1;
+    c.parameters['FUn.LUL'] = 90;
+    c.parameters['FUn.tUL'] = 1;
+  });
   start(u, 12);
   assert.equal(u.state.fault, 'ULF');
   const d = setup(c => {
     c.mechanical.torque = .1;
+    c.parameters['FUn.LUL'] = 90;
     c.parameters['FUn.tUL'] = 0;
   });
   start(d, 12);
@@ -376,12 +393,15 @@ test('Braking bus overvoltage versus adaptation/brake module', () => {
   function brake(adapt, module) {
     const e = setup(c => {
       c.mechanical.inertia = .05;
-      c.parameters.dEC = .2;
+      c.mechanical.torque = 0;
+      // This ramp exports kinetic energy; a much shorter field ramp mostly heats the rotor.
+      c.parameters.dEC = 1;
       c.parameters['FUn.AdC.ACt'] = 'nO';
       c.parameters['FUn.brA'] = adapt;
       c.inputs.brakeModule = module;
     });
     start(e, 8);
+    assert(e.state.rpm > 1400);
     e.setInputs({
       LI1: false
     });
@@ -400,6 +420,7 @@ test('Freewheel stop and catch-on-fly resume a moving motor', () => {
     c.parameters['FUn.PS2.LIb'] = 'nO';
     c.inputs.LI4 = true;
     c.mechanical.inertia = .1;
+    c.mechanical.torque = 0;
   });
   start(e, 12);
   assert(e.state.rpm > 1000);
@@ -475,17 +496,16 @@ test('DO threshold and analog assignments plus DC injection', () => {
   }
   assert(seen);
 });
-test('Automatic restart holds relay and restarts after load is corrected', () => {
+test('Automatic restart holds relay and restarts after an eligible line fault is corrected', () => {
   const e = setup(c => {
     c.parameters['FUn.tCC.tCt'] = 'LEL';
     c.parameters['FUn.Atr'] = 'YES';
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
   });
-  start(e, 12);
-  assert.equal(e.state.fault, 'OLC');
+  e.setInputs({ LI1: true, supplyV: 300 });
+  e.advance(.005);
+  assert.equal(e.state.fault, 'OSF');
   assert(e.state.relay);
-  updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+  e.setInputs({ supplyV: 230 });
   e.advance(10);
   assert.equal(e.state.fault, null);
   assert(e.state.rpm > 1000);
@@ -535,28 +555,41 @@ test('Low-speed timeout begins after the ramp reaches LSP', () => {
 });
 test('Load fault timers continue inside the hysteresis band', () => {
   const e = setup(c => {
-    c.mechanical.torque = 2.3;
-    c.parameters['FUn.LOC'] = 70;
+    c.mechanical.torque = .8;
+    c.parameters['FUn.LOC'] = 95;
+    c.parameters['FUn.tOL'] = 5;
   });
-  start(e, 7);
+  start(e, 6);
+  updateConfig(e, candidate => candidate.mechanical.torque = 2);
+  e.advance(2);
   assert.equal(e.state.fault, null);
   assert(e.overloadTime > 1);
-  updateConfig(e, candidate => candidate.mechanical.torque = 2.0);
+  const overloadedTime = e.overloadTime;
+  updateConfig(e, candidate => candidate.mechanical.torque = 1.6);
   e.advance(.3);
   const overloadThreshold = Engine.DRIVE_CURRENT * e.config.parameters['FUn.LOC'] / 100;
   assert(e.state.current > overloadThreshold - .1 * Engine.DRIVE_CURRENT && e.state.current < overloadThreshold);
-  e.advance(2.7);
+  assert(e.overloadTime >= overloadedTime, 'Entering the hysteresis band must preserve accumulated overload time');
+  e.advance(4);
   assert.equal(e.state.fault, 'OLC');
-  const u = setup(c => c.mechanical.torque = .1);
-  start(u, 7);
+  const u = setup(c => {
+    c.mechanical.torque = .1;
+    c.parameters['FUn.LUL'] = 90;
+    c.parameters['FUn.tUL'] = 5;
+  });
+  start(u, 6);
   assert.equal(u.state.fault, null);
+  assert(u.underloadTime > 1);
+  const underloadedTime = u.underloadTime;
   updateConfig(u, candidate => candidate.mechanical.torque = 1.8);
   u.advance(.3);
   const underloadThreshold = Engine.DRIVE_CURRENT * u.config.parameters['FUn.LUL'] / 100;
   assert(u.state.current > underloadThreshold && u.state.current < underloadThreshold + .1 * Engine.DRIVE_CURRENT);
-  u.advance(2.7);
+  assert(u.underloadTime >= underloadedTime, 'Entering the hysteresis band must preserve accumulated underload time');
+  u.advance(4);
   assert.equal(u.state.fault, 'ULF');
 });
+
 test('PI operational output is low when faulted or powered off', () => {
   const e = setup(c => {
     c.parameters['FUn.PI.PIF'] = 'AI1';
@@ -619,11 +652,14 @@ test('Control inhibit preserves moving rotor, heat and latched faults', () => {
 test('Regenerative overvoltage cannot reset while its bus cause remains', () => {
   const e = setup(c => {
     c.mechanical.inertia = .05;
-    c.parameters.dEC = .2;
+    c.mechanical.torque = 0;
+    // This ramp exports kinetic energy; a much shorter field ramp mostly heats the rotor.
+    c.parameters.dEC = 1;
     c.parameters['FUn.AdC.ACt'] = 'nO';
     c.parameters['FUn.brA'] = 'nO';
   });
   start(e, 8);
+  assert(e.state.rpm > 1400);
   e.setInputs({
     LI1: false
   });
@@ -745,6 +781,7 @@ test('A shorting bridge trips only when an output is energized', () => {
 test('One open wire has no starting torque and can recover after reconnection', () => {
   for (const open of ['U', 'V', 'W']) {
     const e = setup(c => {
+    c.parameters['drC.UFr'] = 100;
       c.inputs.outputConnections[open] = false;
       c.parameters['FUn.tOL'] = 0;
       c.parameters['FUn.tUL'] = 0;
@@ -752,7 +789,6 @@ test('One open wire has no starting torque and can recover after reconnection', 
     start(e, 6);
     assert.equal(e.state.rpm, 0);
     assert(Math.abs(e.state.torque) < 1e-12);
-    assert(e.state.currentLimited);
     assert(e.state.current > 0);
     assert.equal(e.state.fault, null);
     assert(Math.abs(e.state.currentImbalance - 100) < 1e-9);
@@ -835,7 +871,7 @@ test('An open motor circuit trips ULF only when its measured-current timer is en
 });
 test('A spinning motor with one open wire has reduced pulsating torque and more heating', () => {
   const e = setup(c => {
-    c.mechanical.torque = 1.3;
+    c.mechanical.torque = .8;
     c.parameters['FUn.tOL'] = 0;
     c.parameters['FUn.tUL'] = 0;
   });
@@ -871,6 +907,7 @@ test('A spinning motor with one open wire has reduced pulsating torque and more 
 });
 test('The finite shaft brake stops, holds angle and permits release', () => {
   const e = setup(c => {
+    c.parameters['drC.UFr'] = 100;
     // This case isolates brake mechanics; dedicated cases exercise the load timers.
     c.parameters['FUn.tOL'] = 0;
     c.parameters['FUn.tUL'] = 0;
@@ -913,11 +950,13 @@ test('Steady load causes timed overload and a held shaft causes thermal overload
   // tOL applies only at a reached reference. A jam enters current-limit
   // frequency foldback, so use a steady load for the timed overload case.
   const e = setup(c => {
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
+    c.mechanical.torque = .8;
+    c.parameters['FUn.LOC'] = 95;
     c.parameters['FUn.tOL'] = 1;
   });
   start(e, 6);
+  assert.equal(e.state.fault, null);
+  updateConfig(e, candidate => candidate.mechanical.torque = 2);
   e.advance(2);
   assert.equal(e.state.fault, 'OLC');
   assert.equal(e.resetFault(), false);
@@ -1083,22 +1122,18 @@ test('Automatic restart waits for the run order and freewheel permissive', () =>
       c.parameters['FUn.nSt'] = 'LI4';
       c.parameters['FUn.PS2.LIb'] = 'nO';
       c.inputs.LI4 = true;
-      c.mechanical.torque = 2.5;
-      c.parameters['FUn.LOC'] = 70;
     });
-    e.setInputs({
-      LI1: true
-    });
-    while (!e.state.fault && e.state.time < 20) e.advance(.005);
-    assert.equal(e.state.fault, 'OLC');
-    updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+    e.setInputs({ LI1: true, supplyV: 300 });
+    e.advance(.005);
+    assert.equal(e.state.fault, 'OSF');
+    e.setInputs({ supplyV: 230 });
     e.setInputs(missing === 'run' ? {
       LI1: false
     } : {
       LI4: false
     });
     e.advance(10);
-    assert.equal(e.state.fault, 'OLC');
+    assert.equal(e.state.fault, 'OSF');
     assert.equal(e.state.running, false);
     assert(e.state.relay);
     e.setInputs(missing === 'run' ? {
@@ -1115,34 +1150,26 @@ test('Automatic retry does not clear a fault while power is absent', () => {
   const e = setup(c => {
     c.parameters['FUn.tCC.tCt'] = 'LEL';
     c.parameters['FUn.Atr'] = 'YES';
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
   });
-  e.setInputs({
-    LI1: true
-  });
-  while (!e.state.fault && e.state.time < 20) e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
-  updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+  e.setInputs({ LI1: true, supplyV: 300 });
+  e.advance(.005);
+  assert.equal(e.state.fault, 'OSF');
+  e.setInputs({ supplyV: 230 });
   e.setInputs({
     powered: false
   });
   e.advance(2);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   assert.equal(e.state.relay, false);
 });
 test('Automatic retries keep the documented spacing and six-minute lockout', () => {
   const e = setup(c => {
     c.parameters['FUn.tCC.tCt'] = 'LEL';
     c.parameters['FUn.Atr'] = 'YES';
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
   });
-  e.setInputs({
-    LI1: true
-  });
-  while (!e.state.fault && e.state.time < 20) e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
+  e.setInputs({ LI1: true, supplyV: 300 });
+  e.advance(.005);
+  assert.equal(e.state.fault, 'OSF');
   assert.equal(e.autoAttempts, 0);
   e.advance(1.005);
   assert.equal(e.autoAttempts, 1);
@@ -1154,19 +1181,19 @@ test('Automatic retries keep the documented spacing and six-minute lockout', () 
   assert.equal(e.autoAttempts, 2);
   e.advance(.01);
   assert.equal(e.autoAttempts, 3);
-  updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+  e.setInputs({ supplyV: 230 });
   e.setInputs({
     LI1: false
   });
   e.advance(344.01);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   assert(e.autoAborted);
   assert.equal(e.state.relay, false);
   e.setInputs({
     LI1: true
   });
   e.advance(70);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   e.setInputs({
     powered: false
   });
@@ -1224,15 +1251,11 @@ test('Six-minute automatic-restart lockout rejects rSF until a power cycle', () 
     c.parameters['FUn.rSF'] = 'LI3';
     c.parameters['FUn.PS2.LIA'] = 'nO';
     c.parameters['FUn.PS2.LIb'] = 'nO';
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
   });
-  e.setInputs({
-    LI1: true
-  });
-  while (!e.state.fault && e.state.time < 20) e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
-  updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+  e.setInputs({ LI1: true, supplyV: 300 });
+  e.advance(.005);
+  assert.equal(e.state.fault, 'OSF');
+  e.setInputs({ supplyV: 230 });
   e.setInputs({
     LI1: false
   });
@@ -1245,13 +1268,13 @@ test('Six-minute automatic-restart lockout rejects rSF until a power cycle', () 
     LI3: true
   });
   e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   e.setInputs({
     LI3: false,
     LI1: true
   });
   e.advance(70);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   e.setInputs({
     powered: false
   });
@@ -1269,14 +1292,10 @@ test('A power cycle starts fresh retries while retaining a persistent fault caus
   const e = setup(c => {
     c.parameters['FUn.tCC.tCt'] = 'LEL';
     c.parameters['FUn.Atr'] = 'YES';
-    c.mechanical.torque = 2.5;
-    c.parameters['FUn.LOC'] = 70;
   });
-  e.setInputs({
-    LI1: true
-  });
-  while (!e.state.fault && e.state.time < 20) e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
+  e.setInputs({ LI1: true, supplyV: 300 });
+  e.advance(.005);
+  assert.equal(e.state.fault, 'OSF');
   e.advance(360.1);
   assert(e.autoAborted);
   e.setInputs({
@@ -1287,15 +1306,15 @@ test('A power cycle starts fresh retries while retaining a persistent fault caus
     powered: true
   });
   e.advance(.005);
-  assert.equal(e.state.fault, 'OLC');
+  assert.equal(e.state.fault, 'OSF');
   assert(!e.autoAborted);
   assert.equal(e.autoAttempts, 0);
   assert(e.autoElapsed < .01);
   assert(e.state.relay);
   e.advance(1);
   assert.equal(e.autoAttempts, 1);
-  assert.equal(e.state.fault, 'OLC');
-  updateConfig(e, candidate => candidate.mechanical.torque = 1.2);
+  assert.equal(e.state.fault, 'OSF');
+  e.setInputs({ supplyV: 230 });
   e.advance(9);
   assert.equal(e.state.fault, null);
   assert(e.state.rpm > 1000);

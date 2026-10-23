@@ -380,7 +380,7 @@ export function initialConfig(): ValidConfiguration {
     motorElectrical: { mode: 'estimated' },
     // This bench load keeps the estimated motor above factory LUL at 25/50 Hz.
     // It is a classroom load choice; drive parameter defaults stay in CATALOG.
-    mechanical: { torque: 2.1, friction: .002, inertia: .008 },
+    mechanical: { torque: .8, friction: .002, inertia: .008 },
     inputs: { powered: true, supplyV: 230, LI1: false, LI2: false, LI3: false, LI4: false, analogType: '5V', analogPosition: 50, outputConnections: { U: true, V: true, W: true }, shaftHeld: false, shortCircuit: false, brakeModule: false, ambient: 25, ventilation: 1 },
     inputModes: { LI1: 'switch', LI2: 'switch', LI3: 'switch', LI4: 'switch' },
     driveMemory: { backupParameters: clone(parameters), backupValid: false, monitor: 'FrH', firstBoot: true },

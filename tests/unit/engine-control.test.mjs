@@ -6,7 +6,7 @@ import { initialConfig } from '../../configuration.ts';
 function config() {
   const c = initialConfig();
   c.inputs.analogPosition = 100;
-  c.mechanical.torque = 1.2;
+  c.mechanical.torque = .8; // The revised nameplate estimate can start this load with factory UFr.
   // These regressions isolate frequency control from optional load alarms.
   c.parameters['FUn.tOL'] = c.parameters['FUn.tUL'] = 0;
   return c;
@@ -63,7 +63,11 @@ for (const direction of [1, -1]) {
 }
 
 test('Current-limited frequency foldback recovers the original passive load after shaft release', () => {
-  const drive = started(config()), before = drive.state;
+  const c = config();
+  c.mechanical.torque = 1.2;
+  // The heavier release fixture needs full configured IR boost to supply its starting torque.
+  c.parameters['drC.UFr'] = 100;
+  const drive = started(c), before = drive.state;
   drive.setInputs({ shaftHeld: true });
   drive.advance(2.105);
   const held = drive.state;
@@ -82,9 +86,17 @@ test('Current-limited frequency foldback recovers the original passive load afte
 for (const phase of ['U', 'V', 'W']) {
   test(`Factory standby flux and open ${phase} recover after balanced reconnection`, () => {
     const c = config(); c.inputs.outputConnections[phase] = false;
-    const drive = started(c);
+    const drive = new VFDDrive(c);
+    drive.advance(.3);
+    drive.setInputs({ LI1: true });
+    let limited = false;
+    for (let n = 0; n < 1200; n++) {
+      drive.advance(.005);
+      limited ||= drive.state.currentLimited;
+    }
     assert.equal(drive.state.rpm, 0);
-    assert.ok(drive.state.currentLimited);
+    // Frequency foldback can remove the active voltage attenuation before reconnection.
+    assert.ok(limited, 'The open-phase fixture must actually engage the physical current limiter');
     drive.setInputs({ outputConnections: { U: true, V: true, W: true } });
     drive.advance(8);
     assert.ok(drive.state.rpm > 1400);

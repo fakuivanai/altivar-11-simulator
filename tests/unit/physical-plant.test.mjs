@@ -124,7 +124,17 @@ test('Steady forward/reverse motoring and load steps derive speed, torque and ph
   c.mechanical.torque = 2;
   run(p, c, ac(), 1);
   assert.ok(p.omega < unloadedSpeed && p.omega > 140);
-  assert.ok(p.torque > 1.95 && p.torque < 2.05);
+  // Average complete rectifier periods, keeping the physical 100 Hz torque ripple.
+  const initialSpeed = p.omega;
+  let torqueSum = 0;
+  for (let n = 0; n < 40; n++) {
+    p.advance(.005, ac(), c, n * .005);
+    torqueSum += p.torque;
+  }
+  const meanTorque = torqueSum / 40;
+  const inertia = c.motor.inertia + c.mechanical.inertia;
+  assert.ok(meanTorque > 1.95 && meanTorque < 2.05);
+  assert.ok(Math.abs((meanTorque - c.mechanical.torque) * .2 - inertia * (p.omega - initialSpeed)) < 1e-10);
   assert.ok(p.currentLag < unloadedLag && p.currentLag > 0);
   const reverseConfig = config(); reverseConfig.mechanical.inertia = .008;
   const reverse = charged(reverseConfig); run(reverse, reverseConfig, ac(-50), 1.5);
@@ -194,8 +204,12 @@ test('Circuit replacement is owned, explicit and stopped-only; reset is determin
 
 
 test('Capacitor plus motor/shaft energy closes against source, board, copper and dissipative ledgers', () => {
-  const c = config(), p = charged(c);
-  p.omega = 200;
+  const c = config();
+  c.mechanical.inertia = .1;
+  const p = charged(c);
+  // A moderate supersynchronous speed can export power despite copper losses.
+  // More extreme negative slip can brake entirely into copper heat instead.
+  p.omega = 170;
   const original = p.dcLink.step.bind(p.dcLink);
   let link, demand;
   p.dcLink.step = (dt, input) => {
@@ -205,7 +219,8 @@ test('Capacitor plus motor/shaft energy closes against source, board, copper and
   };
   let regenerated = 0;
   for (const command of [ac(), ac(-50), dc, off]) {
-    for (let n = 0; n < 400; n++) {
+    const steps = command.mode === 'ac' && command.frequency > 0 ? 2000 : 400;
+    for (let n = 0; n < steps; n++) {
       const before = totalMotorEnergy(p, c) + p.dcLink.energy;
       const numerical = p.numericalLoss, switching = p.switchingLoss;
       p.advance(h, command, c, 0);

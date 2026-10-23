@@ -1,73 +1,72 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { estimateMotorCircuit } from '../../motor-circuit.ts';
+import { estimateMotorCircuit, steadyStateMotor } from '../../motor-circuit.ts';
 import { InductionMotorDynamics } from '../../motor-dynamics.ts';
 
-// Frozen v1.0.0 classroom nameplate, not a measured motor identification.
 const plate = { powerKW: .37, voltage: 230, frequency: 50, current: 2.1,
   speedRPM: 1420, poles: 4, cosPhi: .8, inertia: .002 };
-const circuit = estimateMotorCircuit(plate).circuit;
+const estimate = estimateMotorCircuit(plate), circuit = estimate.circuit;
 const ratedTorque = 1000 * plate.powerKW / (plate.speedRPM * Math.PI / 30);
-const ratedSlipHz = Math.max(.2, plate.frequency - plate.speedRPM * plate.poles / 120);
-const excitation = direction => ({ mode: 'ac', frequency: direction * plate.frequency, voltage: plate.voltage });
+const ratedInput = Math.sqrt(3) * plate.voltage * plate.current * plate.cosPhi;
+const ratedSlipHz = plate.frequency - plate.speedRPM * plate.poles / 120;
 
-// Adapted pre-current-limit balanced torque curve from v1.0.0 engine.ts,
-// lines 521-522 and 549-551. At 50 Hz/230 V the legacy normalized flux is 1:
-// https://github.com/fakuivanai/altivar-11-simulator/blob/bd3f2b256d58956fdffa437a91688c22f11c8999/engine.ts#L549-L551
-// We compare the intrinsic curve, excluding the old independent current/torque
-// clipping, ramp adaptation, imposed shaft hold and single-phase approximations.
-function legacyTorque(frequency, omega) {
-  const slip = frequency - omega * plate.poles / (4 * Math.PI);
-  const breakdown = 4 * ratedSlipHz;
-  return ratedTorque * (slip / ratedSlipHz) / (1 + (slip / breakdown) ** 2) * (1 + 1 / 16);
-}
-function settledTorque(direction, slipMultiple) {
+function settledPoint(direction, slipMultiple) {
   const frequency = direction * plate.frequency;
   const omega = (frequency - direction * slipMultiple * ratedSlipHz) * 4 * Math.PI / plate.poles;
+  const excitation = { mode: 'ac', frequency, voltage: plate.voltage };
+  const expected = steadyStateMotor(circuit, plate.voltage, frequency, omega);
   const motor = new InductionMotorDynamics(circuit);
-  motor.advance(4, { omega, excitation: excitation(direction) });
-  // Average one electrical period after settling; never include startup torque.
-  const torque = motor.advance(1 / plate.frequency, { omega, excitation: excitation(direction) }).torque;
-  return { actual: torque, expected: legacyTorque(frequency, omega) };
+  motor.advance(4, { omega, excitation });
+  const before = motor.readings.magneticEnergy;
+  const period = 1 / plate.frequency;
+  const actual = motor.advance(period, { omega, excitation });
+  const conversion = (actual.inputPower - actual.torque * omega
+    - actual.statorCopperLoss - actual.rotorCopperLoss) * period;
+  const energyResidual = actual.magneticEnergy - before - conversion
+    + actual.switchingLoss + actual.numericalLoss;
+  assert(Math.abs(energyResidual) < 2e-8 * Math.max(1, before, Math.abs(actual.inputPower * period)));
+  assert(actual.statorCopperLoss >= 0 && actual.rotorCopperLoss >= 0);
+  return { actual, expected };
 }
 
-// Dense useful operating range through 4sn breakdown, plus deep-slip/stall
-// points. Locked rotor is 18.75sn for this plate. Generating points mirror slips,
-// including super-synchronous operation; both AC phase sequences are exercised.
+// Exercise the stable branch, beyond breakdown, deep slip and locked rotor.
+// The independent complex T-circuit is the reference, not a prescribed current
+// or an empirical symmetric torque curve. Positive Rs makes generation asymmetric.
 const slips = [...Array.from({ length: 40 }, (_, index) => (index + 1) / 10), 6, 8, 12, 18.75];
-
-for (const [name, slipSign, tolerance] of [['motoring', 1, .07], ['generating', -1, .18]]) {
-  test(`Settled ${name} torque retains the v1.0.0 curve within its explicit physical-model tolerance`, context => {
-    let worst = { error: 0, direction: 0, slip: 0 }, ratedError = 0;
+for (const [name, slipSign] of [['motoring', 1], ['generating', -1]]) {
+  test('Settled ' + name + ' torque, current and power agree with the independent T-circuit', context => {
+    const worst = { torque: 0, current: 0, inputPower: 0 };
     for (const direction of [1, -1]) for (const multiple of slips) {
-      const slip = slipSign * multiple, { actual, expected } = settledTorque(direction, slip);
-      const error = Math.abs((actual - expected) / expected);
-      assert.ok(actual * expected > 0, `torque sign at sequence ${direction}, slip ${slip}sn`);
-      assert.ok(error <= tolerance, `${name} at sequence ${direction}, slip ${slip}sn: ${actual} Nm versus legacy ${expected} Nm, deviation ${(100 * error).toFixed(3)}% exceeds ${(100 * tolerance).toFixed(0)}%`);
-      if (error > worst.error) worst = { error, direction, slip };
-      if (slipSign === 1 && multiple === 1) ratedError = Math.max(ratedError, error);
+      const { actual, expected } = settledPoint(direction, slipSign * multiple);
+      assert(actual.torque * expected.torque > 0, 'Torque direction follows physical slip');
+      for (const [key, rated] of [['torque', ratedTorque], ['current', plate.current], ['inputPower', ratedInput]]) {
+        const value = key === 'current' ? actual.currentRms : actual[key];
+        const error = Math.abs(value - expected[key]) / Math.max(rated, Math.abs(expected[key]));
+        // Fixed 100 us midpoint sampling leaves a small discretization error.
+        assert(error < .005, key + ' differs from the phasor result at slip ' + slipSign * multiple);
+        worst[key] = Math.max(worst[key], error);
+      }
     }
-    // Measured 100 us baseline: 5.939% motoring, 17.076% generating. The 7%/18%
-    // bounds expose the intended mismatch rather than claiming curve identity.
-    // Rs makes the physical generating/motoring branches asymmetric, whereas
-    // the old reduced curve is odd. Current/PF/6In targets are not torque scales.
-    context.diagnostic(`Maximum ${name} deviation ${(100 * worst.error).toFixed(4)}% at ${worst.slip}sn, sequence ${worst.direction}; allowed ${(100 * tolerance).toFixed(0)}%`);
-    if (slipSign === 1) {
-      assert.ok(ratedError < .002, 'Rated shaft torque must remain within 0.2%');
-      context.diagnostic(`Rated torque deviation ${(100 * ratedError).toFixed(4)}%`);
-    }
+    context.diagnostic('Maximum normalized torque/current/power errors: ' + JSON.stringify(worst));
   });
 }
 
-test('Synchronous settled torque stays near zero without a singular relative-error assertion', context => {
+test('The synchronous torque residual converges quadratically to zero with step refinement', context => {
   let maximum = 0;
   for (const direction of [1, -1]) {
-    const { actual, expected } = settledTorque(direction, 0);
-    assert.ok(Math.abs(expected) < 1e-12);
-    maximum = Math.max(maximum, Math.abs(actual) / ratedTorque);
-    // Fixed 100 us midpoint phase/rotation sampling leaves 0.172%Tn here. An
-    // absolute rated-torque fraction is meaningful at a zero legacy torque.
-    assert.ok(Math.abs(actual) < .002 * ratedTorque, `Synchronous torque ${actual} Nm exceeds 0.2% of rated torque`);
+    const { actual, expected } = settledPoint(direction, 0);
+    assert(Math.abs(expected.torque) < 1e-12);
+    const motor = new InductionMotorDynamics(circuit);
+    const input = { omega: direction * 2 * Math.PI * plate.frequency / circuit.polePairs,
+      excitation: { mode: 'ac', frequency: direction * plate.frequency, voltage: plate.voltage } };
+    for (let n = 0; n < 80000; n++) motor.advance(.00005, input);
+    let fineTorque = 0;
+    for (let n = 0; n < 400; n++) fineTorque += motor.advance(.00005, input).torque / 400;
+    const coarseError = Math.abs(actual.torque), fineError = Math.abs(fineTorque);
+    maximum = Math.max(maximum, coarseError / ratedTorque);
+    assert(coarseError < .003 * ratedTorque, '100 us residual exceeds 0.3% of rated torque');
+    assert(fineError < .001 * ratedTorque, '50 us residual exceeds 0.1% of rated torque');
+    assert(fineError < .3 * coarseError, 'Halving the midpoint step must reduce its torque residual about fourfold');
   }
-  context.diagnostic(`Maximum synchronous residual ${(100 * maximum).toFixed(4)}% of rated torque; allowed 0.2%`);
+  context.diagnostic('Maximum 100 us synchronous residual fraction of rated torque: ' + maximum);
 });

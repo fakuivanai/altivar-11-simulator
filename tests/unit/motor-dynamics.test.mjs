@@ -25,22 +25,49 @@ function balanceStep(motor, h, omega, excitation) {
   return r;
 }
 
-test('The estimate fits torque/no-load/breakdown without hiding incompatible current targets', () => {
-  const { fits } = estimate;
+test('The estimate jointly fits rated torque, current, power factor and the passive loss balance', () => {
+  const { fits, lossBalance } = estimate;
   relative(fits.ratedTorque.achieved, 370 / ratedOmega, 1e-10);
-  relative(fits.noLoadCurrent.achieved, .35 * 2.1, 1e-10);
-  relative(fits.breakdownSlip.achieved, 4 * (1 - 1420 / 1500), 1e-10);
-  assert.ok(fits.lockedCurrent.achieved < .5 * fits.lockedCurrent.target);
-  assert.ok(fits.ratedCurrent.relativeError < -.2);
-  assert.ok(estimate.warnings.some(text => /not simultaneously fitted/.test(text)));
-  // Numbers from the independent steady T-circuit, not a target-current scale.
-  relative(estimate.rated.current, 1.3948920224, 1e-9);
-  relative(estimate.rated.powerFactor, .73656834369, 1e-9);
-  const atBreak = steadyStateMotor(circuit, 230, 50, 2 * Math.PI * 50 * (1 - breakdownSlip(circuit, 50)) / 2);
+  relative(fits.ratedCurrent.achieved, plate.current, 1e-10);
+  relative(fits.powerFactor.achieved, plate.cosPhi, 1e-10);
+  relative(lossBalance.inputPower, Math.sqrt(3) * plate.voltage * plate.current * plate.cosPhi, 1e-10);
+  relative(lossBalance.shaftPower, 370, 1e-10);
+  relative(lossBalance.airGapPower, 370 / (1 - estimate.rated.slip), 1e-10);
+  relative(lossBalance.statorCopperLoss, 3 * circuit.statorResistance * plate.current ** 2, 1e-10);
+  relative(lossBalance.rotorCopperLoss, estimate.rated.slip * lossBalance.airGapPower, 1e-10);
+  assert(Math.abs(lossBalance.residual) < 1e-10);
+  assert(lossBalance.efficiency > 0 && lossBalance.efficiency < 1);
+  assert.equal(circuit.statorLeakageInductance, circuit.rotorLeakageInductance);
+  relative(circuit.statorLeakageInductance, .1 * plate.voltage / Math.sqrt(3) / plate.current / (2 * Math.PI * plate.frequency), 1e-10);
+  // Unmeasured shape assumptions must remain diagnostics, not current scales.
+  assert(Math.abs(fits.noLoadCurrent.relativeError) > .1);
+  assert(Math.abs(fits.lockedCurrent.relativeError) > .1);
+  assert(estimate.warnings.some(text => /unfitted diagnostic/.test(text)));
+  assert(estimate.warnings.some(text => /effective stator copper/.test(text)));
+  const atBreak = estimate.breakdown;
   const below = steadyStateMotor(circuit, 230, 50, 2 * Math.PI * 50 * (1 - .8 * breakdownSlip(circuit, 50)) / 2);
   const above = steadyStateMotor(circuit, 230, 50, 2 * Math.PI * 50 * (1 - 1.2 * breakdownSlip(circuit, 50)) / 2);
-  assert.ok(atBreak.torque > below.torque && atBreak.torque > above.torque);
+  assert(atBreak.torque > below.torque && atBreak.torque > above.torque);
+  assert(atBreak.torque > estimate.rated.torque, 'The fitted nameplate must lie on the stable motoring branch');
 });
+
+for (const nameplate of [
+  { ...plate, powerKW: .75, voltage: 400, current: 2, cosPhi: .75, speedRPM: 1390 },
+  { ...plate, powerKW: 7.5, voltage: 400, current: 15, cosPhi: .85, speedRPM: 1470 },
+]) {
+  test('Joint nameplate fitting remains passive at ' + nameplate.powerKW + ' kW', () => {
+    const fitted = estimateMotorCircuit(nameplate);
+    for (const key of ['ratedTorque', 'ratedCurrent', 'powerFactor'])
+      assert(Math.abs(fitted.fits[key].relativeError) < 1e-10, key);
+    assert(fitted.lossBalance.statorCopperLoss > 0 && fitted.lossBalance.rotorCopperLoss > 0);
+    assert(Math.abs(fitted.lossBalance.residual) < 1e-8);
+    assert(fitted.breakdown.torque > fitted.rated.torque);
+    const omega = nameplate.speedRPM * Math.PI / 30;
+    const motor = settle(omega, ac(nameplate.frequency, nameplate.voltage), 4, fitted.circuit);
+    relative(motor.readings.currentRms, nameplate.current, .003);
+    relative(motor.readings.torque * omega, nameplate.powerKW * 1000, .003);
+  });
+}
 
 test('Circuit parameters stay positive definite and foreign objects do not own the circuit', () => {
   const p = circuitParameters(circuit), c = makeMotorCircuit(p, 2);
@@ -105,7 +132,9 @@ test('DC standstill obeys line resistances, zero net current and zero torque', (
 
 test('DC at nonzero rotor speed brakes naturally and consumes electrical power', () => {
   for (const omega of [ratedOmega, -ratedOmega]) {
-    const r = settle(omega, dc({ U: 12, V: 0, W: 0 })).readings;
+    // Keep a nameplate-sized standstill source current when the fitted Rs changes.
+    const voltage = 1.5 * circuit.statorResistance * plate.current;
+    const r = settle(omega, dc({ U: voltage, V: 0, W: 0 })).readings;
     assert.ok(r.torque * omega < -1);
     assert.ok(r.inputPower > 0 && r.rotorCopperLoss > 0);
     relative(r.inputPower - r.torque * omega, r.statorCopperLoss + r.rotorCopperLoss, .0001);
@@ -266,4 +295,80 @@ test('An exactly unenergized stopped motor advances its clock with zero borrowed
   assert.equal(motor.readings.time, 60);
   motor.advance(.0001, { omega: 0, excitation: ac() });
   assert(motor.readings.currentMagnitude > 0, 'The shortcut must not skip the first energized step');
+});
+
+function openAtRest() {
+  const motor = settle(ratedOmega, ac());
+  motor.advance(.00123, { omega: ratedOmega, excitation: ac() });
+  const beforeOpening = motor.snapshot();
+  motor.advance(0, { omega: 0, excitation: { mode: 'off' } });
+  return { motor, beforeOpening };
+}
+
+test('Open-stator decay at rest retains exact remanence, induced voltage and switching energy', () => {
+  const { motor, beforeOpening } = openAtRest();
+  const open = motor.snapshot(), dt = .0073;
+  assert(open.switchingLoss > 0);
+  relative(beforeOpening.magneticEnergy - open.magneticEnergy, open.switchingLoss, 1e-10);
+  assert.equal(open.electricalAngle, beforeOpening.electricalAngle);
+  const gamma = circuit.rotorResistance / circuit.rotorInductance;
+  const k = circuit.magnetizingInductance / circuit.rotorInductance;
+  const decay = Math.exp(-gamma * dt);
+  const after = motor.advance(dt, { omega: 0, excitation: { mode: 'off' } });
+  relative(after.rotorFlux.alpha, open.rotorFlux.alpha * decay, 1e-12);
+  relative(after.rotorFlux.beta, open.rotorFlux.beta * decay, 1e-12);
+  assert(Math.hypot(after.rotorFlux.alpha, after.rotorFlux.beta) > 0);
+  assert.equal(after.statorFlux.alpha, k * after.rotorFlux.alpha);
+  assert.equal(after.statorFlux.beta, k * after.rotorFlux.beta);
+  const va = -k * gamma * after.rotorFlux.alpha, vb = -k * gamma * after.rotorFlux.beta;
+  relative(after.phaseVoltage.U, va, 1e-12);
+  relative(after.phaseVoltage.V, -va / 2 + Math.sqrt(3) * vb / 2, 1e-12);
+  relative(after.phaseVoltage.W, -va / 2 - Math.sqrt(3) * vb / 2, 1e-12);
+  assert(Object.values(after.phaseCurrent).every(value => value === 0));
+  assert.equal(after.torque, 0);
+  assert.equal(after.inputPower, 0);
+  assert.equal(after.statorCopperLoss, 0);
+  assert.equal(after.numericalLoss, 0);
+  assert.equal(after.switchingLoss, 0);
+  relative(after.rotorCopperLoss * dt, open.magneticEnergy - after.magneticEnergy, 1e-12);
+  assert.equal(after.electricalAngle, open.electricalAngle);
+  relative(after.time, open.time + dt, 1e-12);
+});
+
+test('Exact stopped off decay is independent of time partition and checkpoint rollback', () => {
+  const { motor } = openAtRest(), saved = motor.checkpoint(), before = motor.snapshot();
+  const input = { omega: 0, excitation: { mode: 'off' } };
+  const whole = motor.advance(.123, input), result = motor.snapshot();
+  const wholeLoss = whole.rotorCopperLoss * .123;
+  motor.restore(saved);
+  let dividedLoss = 0;
+  for (const dt of [.017, .023, .083]) dividedLoss += motor.advance(dt, input).rotorCopperLoss * dt;
+  const divided = motor.snapshot();
+  for (const axis of ['alpha', 'beta']) {
+    relative(divided.rotorFlux[axis], result.rotorFlux[axis], 1e-12);
+    relative(divided.statorFlux[axis], result.statorFlux[axis], 1e-12);
+  }
+  relative(divided.time, result.time, 1e-12);
+  relative(divided.magneticEnergy, result.magneticEnergy, 1e-12);
+  relative(dividedLoss, wholeLoss, 1e-12);
+  relative(dividedLoss + divided.magneticEnergy, before.magneticEnergy, 1e-12);
+  motor.restore(saved);
+  motor.advance(.123, input);
+  assert.deepEqual(motor.snapshot(), result);
+});
+
+test('Six minutes of stopped open-stator decay remain passive with no cutoff or input work', () => {
+  const { motor } = openAtRest(), before = motor.snapshot();
+  let heat = 0, previous = before.magneticEnergy;
+  for (let minute = 0; minute < 6; minute++) {
+    const sample = motor.advance(60, { omega: 0, excitation: { mode: 'off' } });
+    heat += sample.rotorCopperLoss * 60;
+    assert(sample.magneticEnergy <= previous);
+    assert.equal(sample.inputPower, 0);
+    assert.equal(sample.torque, 0);
+    previous = sample.magneticEnergy;
+  }
+  relative(heat + motor.readings.magneticEnergy, before.magneticEnergy, 1e-12);
+  relative(motor.readings.time, before.time + 360, 1e-12);
+  assert.equal(motor.readings.electricalAngle, before.electricalAngle);
 });
