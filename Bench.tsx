@@ -4,9 +4,9 @@ import { For } from 'solid-js';
 import type { JSX } from 'solid-js';
 import {
   ANALOG_SELECT, ANALOG_SLIDER, BRAKE, CONTROL_TARGET, DISCONNECT, HINT, HOLD_BUTTON, MODE_BUTTON,
-  PHASE_Y, SHORT_BUTTON, SUPPLY, SWITCH,
+  PHASE_Y, SHORT_BUTTON, SUPPLY, SUPPLY_FIELD, SWITCH, inputPurposeBox,
 } from './layout';
-import { LOGIC_INPUTS, OUTPUT_PHASES } from './simulator';
+import { LOGIC_INPUTS, PHASES } from './engine-types';
 import type { LogicInputId } from './engine-types';
 import { ToggleButton, place, usePress, useSimulator } from './ui';
 
@@ -24,7 +24,7 @@ function LogicInput(props: { id: LogicInputId }): JSX.Element {
       classList={{ active: closed() }} aria-pressed={closed()}
       aria-label={`${props.id} ${role() || 'sin función'}: ${closed() ? 'cerrado' : 'abierto'}`}
       {...press} onClick={() => { if (!momentary()) set(!closed()); }} />
-    <div id={props.id + '-purpose'} {...place({ x: x - 34, y: 826, w: 68, h: 22 }, 'purpose')} title={role()}>{role()}</div>
+    <div id={props.id + '-purpose'} {...place(inputPurposeBox(props.id), 'purpose')} title={role()}>{role()}</div>
     <button id={props.id + '-mode'} {...place({ x: x - MODE_BUTTON.w / 2, y: MODE_BUTTON.y, w: MODE_BUTTON.w, h: MODE_BUTTON.h }, 'mode')}
       aria-label={'Tipo de mando ' + props.id}
       onClick={() => sim.commitExternal('inputModes', props.id, momentary() ? 'switch' : 'button')}>
@@ -39,7 +39,7 @@ function Supply(): JSX.Element {
   return <>
     <ToggleButton id="power-breaker" input="powered" box={SUPPLY.breaker} class={inputs().powered ? 'contact' : 'contact open'}
       label="Interruptor de red" title={inputs().powered ? 'Abrir la red' : 'Cerrar la red'} />
-    <label id="supply-field" {...place({ x: 584, y: 66, w: 112, h: 76 })}>
+    <label id="supply-field" {...place(SUPPLY_FIELD)}>
       Red monofásica<br />
       <input type="number" aria-label="Tensión de red" min="0" max="350" step="1" value={inputs().supplyV}
         onChange={event => {
@@ -71,7 +71,7 @@ function MotorConnections(): JSX.Element {
   const sim = useSimulator();
   const inputs = () => sim.state.config.inputs;
   return <>
-    <For each={OUTPUT_PHASES}>{phase => {
+    <For each={PHASES}>{phase => {
       const connected = () => inputs().outputConnections[phase];
       return (
         <button id={'phase-' + phase} {...place({ x: DISCONNECT.x, y: PHASE_Y[phase] - 20, w: DISCONNECT.w, h: DISCONNECT.h }, 'contact phase')}

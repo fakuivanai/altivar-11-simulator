@@ -1,3 +1,5 @@
+import { invariant } from './invariant';
+export { invariant } from './invariant';
 // Original configuration model. Parameter facts and page locators come from the
 // reviewed Schneider ATV11 E/U V1.2 IE >= 21 catalog, catalog-final.json.
 // The extended V1.2 manual supplies PI details. See Fuentes.md for the sources
@@ -82,9 +84,7 @@ export interface MonitorMetadata extends MetadataBase {
 export type CatalogItem = NumericParameterMetadata | ChoiceParameterMetadata | MonitorMetadata;
 export type ParameterMetadata = NumericParameterMetadata | ChoiceParameterMetadata;
 
-export function invariant(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error('Invariante del simulador: ' + message);
-}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

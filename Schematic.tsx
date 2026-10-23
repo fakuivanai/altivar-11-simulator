@@ -1,3 +1,4 @@
+import { invariant } from './invariant';
 // Original wiring drawing for the stage. Geometry comes from layout.ts; the control
 // fan and the motor leads are built so that no two conductors cross. Only the
 // contacts, the wiper and the U-V short follow the simulator state.
@@ -9,16 +10,13 @@ import {
   STAGE, STRIP_Y, SUPPLY, SWITCH, controlTerminalX, powerTerminalX,
 } from './layout';
 import type { Box, ControlTerminal } from './layout';
-import { LOGIC_INPUTS, OUTPUT_PHASES } from './simulator';
-import type { Phase } from './simulator';
+import { LOGIC_INPUTS, PHASES } from './engine-types';
+import type { Phase } from './engine-types';
 import { useSimulator } from './ui';
 
 const RADIUS = 5.5;
 const START = STRIP_Y + RADIUS;
 
-function invariant(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error('Invariante del esquema: ' + message);
-}
 const Terminal = (props: { x: number; y: number }) => <circle class="terminal" cx={props.x} cy={props.y} r={RADIUS} />;
 const Dot = (props: { x: number; y: number }) => <circle class="node" cx={props.x} cy={props.y} r={3.2} />;
 const Rect = (props: { box: Box; rx?: number; class?: string }) =>
@@ -212,7 +210,7 @@ function MotorLeads(): JSX.Element {
   const left = DISCONNECT.x + 8, right = DISCONNECT.x + DISCONNECT.w - 8;
   return <>
     <g class="wires">
-      <For each={OUTPUT_PHASES}>{phase => {
+      <For each={PHASES}>{phase => {
         const x = phaseX(phase), y = PHASE_Y[phase];
         const closed = () => sim.state.config.inputs.outputConnections[phase];
         return <>
@@ -227,7 +225,7 @@ function MotorLeads(): JSX.Element {
       <For each={[0, 1]}>{index => <path data-net={index === 0 ? 'PA' : 'PC'} d={`M${powerTerminalX(index)} ${START} V${BRAKE_TOP}`} />}</For>
     </g>
     <Rect box={MOTOR_BOX} rx={3} />
-    <For each={OUTPUT_PHASES}>{phase => <>
+    <For each={PHASES}>{phase => <>
       <Terminal x={MOTOR_BOX.x} y={PHASE_Y[phase]} />
       <text x={MOTOR_BOX.x + 12} y={PHASE_Y[phase] + 6} class="label">{phase}</text>
     </>}</For>

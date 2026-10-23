@@ -1,3 +1,4 @@
+import { PHASES } from './engine-types';
 // Readings, the right-hand column (scope, nameplate, environment and files in tabs,
 // with the load always visible), and the 3D motor canvas.
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js';
@@ -44,7 +45,7 @@ export function Readings(): JSX.Element {
         <Row label="Regeneración"><output id="regenerated-power">{r().regenerativePower.toFixed(0)} W</output></Row>
         <Row label="Fases">
           <span class="phases span3">
-            <For each={['U', 'V', 'W'] as const}>{phase =>
+            <For each={PHASES}>{phase =>
               <span>{phase} <output id={'phase-current-' + phase}>{r()[`phaseCurrent${phase}`].toFixed(2)} A</output></span>}</For>
           </span>
         </Row>

@@ -1,3 +1,4 @@
+import { LOGIC_INPUTS, PHASES } from './engine-types';
 // Simulator controller: the drive model, the validated configuration and the
 // keypad logic, with no DOM. Components read its state and call its actions.
 // Manufacturer facts and source locators are recorded in Fuentes.md.
@@ -14,8 +15,8 @@ import type {
 } from './configuration';
 import type { DriveState, FaultCode, LogicInputId } from './engine-types';
 
-export const LOGIC_INPUTS = ['LI1', 'LI2', 'LI3', 'LI4'] as const satisfies readonly LogicInputId[];
-export const OUTPUT_PHASES = ['U', 'V', 'W'] as const;
+export { LOGIC_INPUTS };
+export const OUTPUT_PHASES = PHASES;
 export type Phase = typeof OUTPUT_PHASES[number];
 const ROOT_PARAMETERS = ['ACC', 'dEC', 'LSP', 'HSP', 'ItH', 'SP2', 'SP3', 'SP4'] as const;
 const ROOT_MENUS = ['AIt', 'drC', 'FUn', 'SUP'] as const;

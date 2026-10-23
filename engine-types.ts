@@ -1,6 +1,9 @@
 import type { ParameterValues } from './parameter-types';
 export type { CodeValue, ParameterId, ParameterValues } from './parameter-types';
-export type LogicInputId = 'LI1' | 'LI2' | 'LI3' | 'LI4';
+export const PHASES = ['U', 'V', 'W'] as const;
+export type Phase = typeof PHASES[number];
+export const LOGIC_INPUTS = ['LI1', 'LI2', 'LI3', 'LI4'] as const;
+export type LogicInputId = typeof LOGIC_INPUTS[number];
 export type LogicInputAssignment = LogicInputId | 'nO';
 export type AnalogSource = '5V' | '10V' | '20mA';
 export type Direction = -1 | 0 | 1;

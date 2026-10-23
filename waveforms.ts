@@ -9,8 +9,10 @@
 // Currents are the fundamental only; switching ripple depends on the motor's leakage
 // inductance, which the simulator does not model.
 
-export type Phase = 'U' | 'V' | 'W';
-export const PHASES: readonly Phase[] = ['U', 'V', 'W'];
+import { PHASES } from './engine-types';
+import type { Phase } from './engine-types';
+export { PHASES };
+export type { Phase };
 
 export interface ScopeInput {
   mode: 'off' | 'ac' | 'dc';

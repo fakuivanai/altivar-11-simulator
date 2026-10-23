@@ -1,3 +1,4 @@
+import { invariant } from './invariant';
 // Original native WebGL classroom illustration. This geometry is schematic,
 // not a dimensional drawing of the motor or the Schneider drive. The physical
 // shaft angle comes only from the engine; see Fuentes.md for the motor model.
@@ -50,9 +51,6 @@ const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 
 const NO_WEBGL = 'Vista 3D no disponible. Este navegador no ofrece WebGL.';
 const NO_RESOURCES = 'No se pudo iniciar la vista 3D.';
 
-function invariant(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error('Invariante de la vista 3D: ' + message);
-}
 function subtract(a: Vec3, b: Vec3): Vec3 { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function dot(a: Vec3, b: Vec3): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function cross(a: Vec3, b: Vec3): Vec3 {

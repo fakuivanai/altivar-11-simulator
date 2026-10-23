@@ -1,3 +1,6 @@
+import { LOGIC_INPUTS, PHASES } from './engine-types';
+import type { LogicInputId, Phase } from './engine-types';
+
 // Fixed projection stage. Every wire, terminal and positioned control takes its
 // coordinates from this module, so the drawing never depends on DOM measurement.
 // The stage is scaled as a whole to fit the window.
@@ -19,9 +22,9 @@ export const KEYS: Readonly<Record<'esc' | 'up' | 'ent' | 'down', Box>> = {
 export const ROUTE: Point = { x: 480, y: 470 };
 
 /** Control strip in the manufacturer's order; the unused position is omitted. */
-export const CONTROL_TERMINALS = ['RC', 'RA', '0V', 'AI1', '+5V', 'DO', 'LI1', 'LI2', 'LI3', 'LI4', '+15V'] as const;
+export const CONTROL_TERMINALS = ['RC', 'RA', '0V', 'AI1', '+5V', 'DO', ...LOGIC_INPUTS, '+15V'] as const;
 export type ControlTerminal = typeof CONTROL_TERMINALS[number];
-export const POWER_OUTPUTS = ['PA/+', 'PC/-', 'U', 'V', 'W'] as const;
+export const POWER_OUTPUTS = ['PA/+', 'PC/-', ...PHASES] as const;
 export type PowerOutput = typeof POWER_OUTPUTS[number];
 
 export const STRIP_Y = 594;
@@ -59,7 +62,7 @@ export const INPUT_LABEL_Y = 840;
 export const MODE_BUTTON = { y: 852, h: 32, w: 66 } as const;
 
 /** Motor leads leave the right strip, turn right at separate heights and cross the disconnects. */
-export const PHASE_Y: Readonly<Record<'U' | 'V' | 'W', number>> = { U: 708, V: 674, W: 640 };
+export const PHASE_Y: Readonly<Record<Phase, number>> = { U: 708, V: 674, W: 640 };
 export const DISCONNECT = { x: 676, w: 52, h: 30 } as const;
 // Direct drive-output short, upstream of the removable motor connections.
 export const SHORT_X = 666;
@@ -74,3 +77,10 @@ export const HOLD_BUTTON: Box = { x: 950, y: 644, w: 160, h: 64 };
 export const HINT: Box = { x: 790, y: 772, w: 322, h: 116 };
 export const READINGS: Box = { x: 700, y: 66, w: 412, h: 228 };
 export const SETTINGS: Box = { x: 1134, y: 66, w: 450, h: 822 };
+
+/** Input captions and supply editor share the stage's fixed geometry. */
+export const SUPPLY_FIELD: Box = { x: 584, y: 66, w: 112, h: 76 };
+export const INPUT_PURPOSE = { y: 826, w: 68, h: 22 } as const;
+export function inputPurposeBox(id: LogicInputId): Box {
+  return { x: CONTROL_TARGET[id] - INPUT_PURPOSE.w / 2, ...INPUT_PURPOSE };
+}
