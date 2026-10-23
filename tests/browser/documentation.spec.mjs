@@ -24,6 +24,8 @@ test('Documentation and limitations remain readable on a phone and link back to 
   const { page, index } = app;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(index);
+  assert.equal(await page.locator('footer').getByText('Diseñado por Facundo Karanik', { exact: false }).count(), 1);
+  assert.equal(await page.locator('footer').getByText('Hecho con Claude y Codex', { exact: false }).count(), 1);
   await page.getByRole('link', { name: 'Cómo funciona el simulador', exact: true }).click();
   const size = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
   assert.ok(size[0] <= size[1], 'the document must keep wide tables inside scrolling containers');

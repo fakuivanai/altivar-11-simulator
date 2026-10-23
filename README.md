@@ -30,14 +30,16 @@ pnpm test:browser
 ## Model and structure
 
 - `engine.ts` owns command, ramp and protection behavior. `physical-plant.ts` couples shaft work, motor flux, current regulation and the DC bus.
-- `motor-dynamics.ts` integrates four stationary-frame flux states. `motor-circuit.ts` estimates an editable passive circuit and reports its fit residuals.
+- `motor-dynamics.ts` integrates four stationary-frame flux states. `motor-circuit.ts` fits nominal current, power factor and torque to an editable passive circuit and reports its power balance and residuals.
 - `dc-link.ts`, `shaft-brake.ts` and `drive-control.ts` implement rectifier/precharge energy, finite shaft restraint and voltage based current loops.
 - `configuration.ts` validates configurations and parameter dependencies. Invalid imports leave the current state intact. Motor nameplate and circuit edits require a stopped shaft and inactive output.
 - `panel.ts` owns keypad and menu behavior. `simulator.ts` connects it to browser files, a bounded frame budget and the animation clock.
-- `scope-history.ts` records physical transients independently of rendering. `waveforms.ts` reconstructs periodic PWM and a separate local switching-current zoom. `motor-view.ts` and `motor-sound.ts` consume model output.
+- `scope-history.ts` records signed physical transients independently of rendering. `scope-trends.ts` computes the trailing 100 ms RMS and mean values shown in Registro. `waveforms.ts` reconstructs periodic PWM and a separate local switching-current zoom. `motor-view.ts` and `motor-sound.ts` consume model output.
 - `manufacturer-documents.json` holds official links and page mappings. `documentation.html` and `limitations.html` explain features, equations, a system diagram and limitations in Spanish. `documentation.ts` generates their catalog, circuit-fit and model-value tables from executable sources. [Fuentes.md](Fuentes.md) records source decisions.
 
-The simulator uses a 100 us electrical step and 5 ms control step. It retains flux and capacitor energy through transients and regulates current through voltage. Its estimated motor parameters and control algorithms are teaching choices. Thermal indices have compressed time constants and do not represent measured temperatures. See the generated limitations page before comparing behavior with a particular drive or motor.
+The simulator uses a 100 us electrical step and 5 ms control step. It retains flux and capacitor energy through transients and regulates current through voltage. A stopped motor with the output off uses exact exponential remanent-flux decay while preserving the bus and sample cadence. Its estimated motor parameters and control algorithms are teaching choices. Thermal indices have compressed time constants and do not represent measured temperatures. See the generated limitations page before comparing behavior with a particular drive or motor.
+
+The nominal circuit fit assigns every loss not determined by slip to an effective stator resistance. It does not identify iron, mechanical and copper losses separately. Equal leakage uses a generic prior; no-load, locked-rotor and maximum-torque references remain diagnostics. Low-speed V/f voltage includes the selected circuit's resistive drop, tapered to zero at nominal frequency. These are explicit teaching assumptions, not an identified firmware implementation.
 
 Configuration files retain the `variador-aula` version 1 format. The optional legacy field `motorElectrical` is normalized to `{ "mode": "estimated" }` when absent. New exports state the estimate or explicit manual circuit parameters. Imports reset the dynamic session; they do not restore moving flux, bus charge or a scope capture.
 

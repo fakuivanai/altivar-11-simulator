@@ -70,7 +70,7 @@ const userUrl = userManual.sourceUrl + '#page=' + userManual.pageMapping.Spanish
 const index = `<!doctype html>
 <html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Simulador de variador</title>
-<style>body{margin:2rem;font:20px/1.5 Arial,sans-serif;color:#222}main{max-width:48rem}a{color:#245c76}li{margin:1rem 0}</style>
+<style>body{margin:2rem;font:20px/1.5 Arial,sans-serif;color:#222}main{max-width:48rem}a{color:#245c76}li{margin:1rem 0}footer{margin-top:2rem;font-size:1rem}</style>
 <main><h1>Simulador de variador de frecuencia</h1>
 <p>Modelo didáctico de un ATV11HU09M2E. Los modelos y sus supuestos se explican en la documentación.</p>
 <ul><li><a href="Simulador de variador.html">Abrir el simulador para proyección</a></li>
@@ -78,7 +78,8 @@ const index = `<!doctype html>
 <li><a href="Documentación del simulador.html">Cómo funciona el simulador</a></li>
 <li><a href="Limitaciones del modelo.html">Limitaciones del modelo</a></li></ul>
 <p>Las páginas se pueden descargar y abrir sin conexión. Conserve los HTML juntos para seguir los enlaces entre ellos.</p>
-<p><a href="${escape(userUrl)}">Descargar manual oficial del fabricante</a>. La sección española comienza en la página 53 del PDF, impresa 52. Su consulta requiere internet.</p></main>
+<p><a href="${escape(userUrl)}">Descargar manual oficial del fabricante</a>. La sección española comienza en la página 53 del PDF, impresa 52. Su consulta requiere internet.</p>
+<footer><p>Diseñado por Facundo Karanik<br>Hecho con Claude y Codex</p></footer></main>
 </html>
 `;
 const manual = `<!doctype html>

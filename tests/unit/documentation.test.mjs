@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { CATALOG } from '../../configuration.ts';
 import { MODEL_FACT_GROUPS, renderDocumentation } from '../../documentation.ts';
+import { displayNumber, inputNumber } from '../../format.ts';
+import { readableCondition } from '../../guide-content.ts';
 
 const source = () => readFileSync(new URL('../../documentation.html', import.meta.url), 'utf8');
 test('Every documented model group covers every executable constant', () => {
@@ -29,4 +31,38 @@ test('Documentation fails its build for missing, repeated or unknown generated s
   assert.throws(() => renderDocumentation(source().replace('{{MODEL_FACTS}}', '')), /Missing or repeated/);
   assert.throws(() => renderDocumentation(source() + '{{MODEL_FACTS}}'), /Missing or repeated/);
   assert.throws(() => renderDocumentation(source() + '{{UNKNOWN}}'), /Unknown/);
+});
+
+test('Spanish readings and native number inputs share three significant figures without losing small values', () => {
+  for (const [value, display, input] of [
+    [1.39489, '1,39', '1.39'], [-33.579, '-33,6', '-33.6'],
+    [0.000001, '0,000001', '0.000001'], [999.99, '1000', '1000'],
+    [1.78478e-14, '0', '0'], [-1e-15, '0', '0'],
+  ]) {
+    assert.equal(displayNumber(value), display);
+    assert.equal(inputNumber(value), input);
+    assert(Number.isFinite(Number(inputNumber(value))));
+  }
+});
+test('The catalog uses study explanations, written conditions and Spanish numeric values', () => {
+  const html = renderDocumentation(source());
+  assert(html.includes('PS2 / LIA distinto de nO'));
+  assert(html.includes('PI / PIF igual a AI1 y PI / Pr2 distinto de nO'));
+  assert(!html.includes('Esperas1s'));
+  assert(!html.includes('FUn.PI.PIF = AI1'));
+  assert(!html.includes('FUn.PI.Pr2 != nO'));
+  assert(html.includes('<td>1,47</td>'));
+  assert(html.includes('mH</td>'));
+  for (const key of ['inputPower', 'shaftPower', 'airGapPower', 'statorCopperLoss', 'rotorCopperLoss', 'efficiency', 'residual'])
+    assert(html.includes('data-loss-balance="' + key + '"'));
+  assert(!html.includes('1,39489'));
+  assert(!/0,0{10}/.test(html));
+  assert.equal(readableCondition('FUn.PI.PIF = AI1 y FUn.tLS > 0'), 'PI / PIF igual a AI1 y tLS mayor que 0');
+});
+test('All generated tables follow the physical explanation and reading instructions', () => {
+  const html = renderDocumentation(source());
+  const narrative = html.indexOf('id="observar"');
+  assert(narrative > html.indexOf('id="control"'));
+  for (const table of ['data-fit=', 'data-model-fact=', 'data-parameter='])
+    assert(html.indexOf(table) > narrative, table);
 });
