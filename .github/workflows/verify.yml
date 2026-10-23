@@ -12,6 +12,10 @@ on:
         description: Run the full browser suite (heavy)
         type: boolean
         default: false
+      preview_pr:
+        description: PR number for a preview, empty for the main site
+        type: string
+        default: ''
       publish:
         description: Publish to Pages
         type: boolean
@@ -58,11 +62,31 @@ jobs:
           name: classroom-${{ github.ref_name }}
           path: classroom/
           if-no-files-found: error
+      - name: Validate preview number
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.preview_pr != ''
+        env:
+          PREVIEW_PR: ${{ inputs.preview_pr }}
+        run: '[[ "$PREVIEW_PR" =~ ^[1-9][0-9]*$ ]]'
+      - name: Published release sources
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.preview_pr != ''
+        uses: actions/checkout@v7
+        with:
+          ref: bd3f2b256d58956fdffa437a91688c22f11c8999 # v1.0.0
+          path: .pages-release
+      - name: Build published release and add preview
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && inputs.preview_pr != ''
+        env:
+          PREVIEW_PR: ${{ inputs.preview_pr }}
+        run: |
+          pnpm --dir .pages-release install --frozen-lockfile
+          BUILD_DIR=../pages pnpm --dir .pages-release build
+          mkdir -p "pages/pr/$PREVIEW_PR"
+          cp dist/*.html "pages/pr/$PREVIEW_PR/"
       - name: Pages files
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         uses: actions/upload-pages-artifact@v4
         with:
-          path: dist/
+          path: ${{ inputs.preview_pr != '' && 'pages/' || 'dist/' }}
 
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.publish
@@ -74,7 +98,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ inputs.preview_pr != '' && format('{0}pr/{1}/', steps.deployment.outputs.page_url, inputs.preview_pr) || steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/configure-pages@v5
       - name: Deploy to Pages
