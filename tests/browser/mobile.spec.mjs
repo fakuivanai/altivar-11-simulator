@@ -26,6 +26,7 @@ function run(name, path, viewport, body, init) {
         type: event.pointerType,
         trusted: event.isTrusted,
         id: event.target.closest?.('[id]')?.id,
+        blockedControl: !!event.target.closest?.('.key,#hold-shaft,input,select'),
         x: event.clientX,
         y: event.clientY
       }), true);
@@ -398,15 +399,26 @@ await run('native-pinch-and-pan-4to1', file, {
         left: visual.offsetLeft, top: visual.offsetTop };
       const target = element => ({ id: element.closest('[id]')?.id, tag: element.tagName,
         touchAction: getComputedStyle(element).touchAction });
+      // Chromium expands the default CDP contact to a 20 DIP adjustment diameter.
+      // Reserve its scaled radius plus one CSS pixel for integer hit-test rounding.
+      // https://chromium.googlesource.com/chromium/src/+/147.0.7727.15/third_party/blink/renderer/core/page/touch_adjustment.cc#54
+      const clearance = 10 / view.scale + 1;
+      const excluded = [...document.querySelectorAll('.key,#hold-shaft,input,select')]
+        .map(element => element.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0);
+      const clear = (x, y) => excluded.every(rect => x + clearance < rect.left || x - clearance > rect.right
+        || y + clearance < rect.top || y - clearance > rect.bottom);
       for (const fraction of [.6, .5, .8, .2]) {
-        const left = document.elementFromPoint(view.left + .1 * view.width, view.top + fraction * view.height);
-        const right = document.elementFromPoint(view.left + .9 * view.width, view.top + fraction * view.height);
+        const leftX = view.left + .1 * view.width, rightX = view.left + .9 * view.width;
+        const y = view.top + fraction * view.height;
+        const left = document.elementFromPoint(leftX, y);
+        const right = document.elementFromPoint(rightX, y);
         // Maintained contacts and mode buttons allow pinch (manipulation/auto).
         // Avoid the keypad/shaft handlers which intentionally capture holds,
         // and native form widgets that may open their own interface.
-        if (left && right && !left.closest('.key,#hold-shaft,input,select') && !right.closest('.key,#hold-shaft,input,select')) {
+        if (left && right && !left.closest('.key,#hold-shaft,input,select')
+          && !right.closest('.key,#hold-shaft,input,select') && clear(leftX, y) && clear(rightX, y)) {
           return {
-            view, left: .1 * view.width, right: .9 * view.width, y: fraction * view.height,
+            view, clearance, left: .1 * view.width, right: .9 * view.width, y: fraction * view.height,
             targets: { left: target(left), right: target(right) }
           };
         }
@@ -416,6 +428,7 @@ await run('native-pinch-and-pan-4to1', file, {
     assert.ok(start.targets, 'no visible targets for native zoom out: ' + JSON.stringify(start));
     const view = start.view;
     assert.ok(view.scale > 1.01, 'native zoom was already removed before reverse pinch: ' + JSON.stringify(start));
+    const touchesBefore = await page.evaluate(() => window.__mobileTouches.length);
     await cdp.send('Input.dispatchTouchEvent', {
       type: 'touchStart',
       touchPoints: [{
@@ -428,26 +441,33 @@ await run('native-pinch-and-pan-4to1', file, {
         y: start.y
       }]
     });
-    const movement = ((start.right - start.left) / 2 - 8) / 10;
-    for (let step = 1; step <= 10; step += 1) {
+    try {
+      await page.waitForFunction(count => window.__mobileTouches.length >= count + 2, touchesBefore);
+      const contacts = await page.evaluate(count => window.__mobileTouches.slice(count, count + 2), touchesBefore);
+      assert.ok(contacts.every(contact => contact.type === 'touch' && contact.trusted && contact.blockedControl === false),
+        'native pinch contact reached an excluded control: ' + JSON.stringify({ gesture: start, contacts }));
+      const movement = ((start.right - start.left) / 2 - 8) / 10;
+      for (let step = 1; step <= 10; step += 1) {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchMove',
+          touchPoints: [{
+            id: 1,
+            x: start.left + movement * step,
+            y: start.y
+          }, {
+            id: 2,
+            x: start.right - movement * step,
+            y: start.y
+          }]
+        });
+        await page.waitForTimeout(25);
+      }
+    } finally {
       await cdp.send('Input.dispatchTouchEvent', {
-        type: 'touchMove',
-        touchPoints: [{
-          id: 1,
-          x: start.left + movement * step,
-          y: start.y
-        }, {
-          id: 2,
-          x: start.right - movement * step,
-          y: start.y
-        }]
+        type: 'touchEnd',
+        touchPoints: []
       });
-      await page.waitForTimeout(25);
     }
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchEnd',
-      touchPoints: []
-    });
     try {
       // Touch dispatch completion does not imply compositor scale completion.
       await page.waitForFunction(scale => window.visualViewport.scale < scale, view.scale, { timeout: 5000 });
