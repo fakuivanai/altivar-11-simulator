@@ -1,5 +1,6 @@
 import type { ParameterId, ParameterValues } from './parameter-types';
 import { conductorMagnitudes, injectionTopology } from './electrical';
+import { stepShaftBrake } from './shaft-brake';
 import type { AnalogReading, Direction, DriveState, ElectricalOutput, EngineConfiguration, EngineConfigUpdate, FaultCode, Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, ReadonlyEngineConfiguration, RunningDirection } from './engine-types';
 /* Original teaching model for ATV11HU09M2E. Parameter and I/O contracts are
    drawn from Schneider Electric ATV11 user manual V1.2 IE >=21, pp.26-33,
@@ -65,6 +66,7 @@ export class VFDDrive {
     private frequencyVelocity = 0;
     private referenceDemand = 0;
     private electricalPhase = 0;
+    private shaftReaction = 0;
     private dcTime = Infinity;
     private wasRunning = false;
     private lowSpeedTime = 0;
@@ -146,6 +148,7 @@ export class VFDDrive {
         this.piIntegral = 0;
         this.frequencyVelocity = 0;
         this.electricalPhase = 0;
+        this.shaftReaction = 0;
         this.dcTime = Infinity;
         this.wasRunning = false;
         this.previousPower = !!this.configuration.inputs.powered;
@@ -386,9 +389,6 @@ export class VFDDrive {
     step(dt: number): Readonly<DriveState> { return this.advance(dt); }
     private tick(dt: number): void {
         const s = this.runtimeState, i = this.configuration.inputs, m = this.configuration.motor, l = this.configuration.mechanical;
-        // The external clamp absorbs the rotor's initial kinetic energy. That
-        // impulse is mechanical work at the clamp, not regenerated bus energy.
-        if (i.shaftHeld) s.omega = 0;
         const connectedOutputs = this.connectedOutputCount();
         const wasPowered = this.previousPower, power = !!i.powered;
         s.time += dt;
@@ -630,13 +630,17 @@ export class VFDDrive {
         const oldOmega = s.omega;
         /* Local implicit damping keeps small allowed rotor inertias stable at a 5 ms step. */
         const electricalSlope = s.running && connectedOutputs >= 2 ? ratedTorque / actualSlip * m.poles / (4 * Math.PI) * flux * flux : 0;
-        s.omega = i.shaftHeld ? 0 : clamp(s.omega + net * dt / (inertia + dt * (l.friction + electricalSlope)), -4000, 4000);
+        const brake = stepShaftBrake({ omega: s.omega,
+            appliedTorque: i.shaftHeld ? net : net * inertia / (inertia + dt * (l.friction + electricalSlope)),
+            inertia, ratedTorque, engaged: i.shaftHeld }, dt);
+        s.omega = clamp(brake.omega, -4000, 4000);
+        this.shaftReaction = brake.reactionTorque;
         // A passive resisting load can stop the shaft, but cannot drive a
         // reversal. An opposing motor torque above the load can reverse it.
         if (oldOmega * s.omega < 0 && l.torque >= 0 && (!s.running || Math.abs(te) <= l.torque))
             s.omega = 0;
         s.rpm = s.omega * 30 / Math.PI;
-        s.angle = (s.angle + s.omega * dt) % (2 * Math.PI);
+        s.angle = (s.angle + brake.angleDelta) % (2 * Math.PI);
         s.torque = te;
         s.voltage = voltage;
         s.currentLag = lag;
@@ -759,17 +763,16 @@ export class VFDDrive {
         return { FrH: this.referenceDemand, rFr: Math.abs(s.frequency), LCr: s.current, ULn: this.configuration.inputs.powered ? this.configuration.inputs.supplyV : 0, tHr: s.motorThermal, tHd: s.driveThermal, rPF: s.piFeedback };
     }
     private physicalReadings(): PhysicalReadings {
-        const s = this.runtimeState, i = this.configuration.inputs, l = this.configuration.mechanical;
+        const s = this.runtimeState, i = this.configuration.inputs;
         const { U, V, W } = conductorMagnitudes(this.electricalMode, s.current, i.outputConnections);
         const average = (U + V + W) / 3;
         const currentImbalance = average > 0 ? 100 * Math.max(Math.abs(U - average), Math.abs(V - average), Math.abs(W - average)) / average : 0;
-        const sign = Math.abs(s.omega) > 0.01 ? Math.sign(s.omega) : Math.sign(s.torque) || this.lastActiveDirection;
         return {
             phaseCurrentU: U,
             phaseCurrentV: V,
             phaseCurrentW: W,
             currentImbalance,
-            shaftReactionTorque: i.shaftHeld ? l.torque * sign + l.friction * s.omega - s.torque : 0
+            shaftReactionTorque: this.shaftReaction
         };
     }
     private electricalOutput(physical: PhysicalReadings): ElectricalOutput {

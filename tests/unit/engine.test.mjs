@@ -795,16 +795,22 @@ test('A spinning motor with one open wire has reduced pulsating torque and more 
   assert(e.state.phaseCurrentW <= e.state.activeCurrentLimit + 1e-12);
   assert.equal(e.state.fault, null);
 });
-test('The external shaft clamp holds angle, absorbs kinetic energy and permits release', () => {
+test('The finite shaft brake stops, holds angle and permits release', () => {
   const e = setup();
   start(e, 6);
   const before = e.snapshot();
   e.setInputs({
     shaftHeld: true
   });
+  // Finite brake torque permits travel while stopping, then holds the angle.
+  e.advance(.005);
+  assert(e.state.rpm > 0 && e.state.rpm < before.rpm);
   e.advance(2);
   assert.equal(e.state.rpm, 0);
-  assert.equal(e.state.angle, before.angle);
+  assert.notEqual(e.state.angle, before.angle);
+  const heldAngle = e.state.angle;
+  e.advance(.1);
+  assert.equal(e.state.angle, heldAngle);
   assert(e.state.currentLimited);
   assert(Math.abs(e.state.current - e.state.activeCurrentLimit) < 1e-9);
   assert(Math.abs(e.state.torque + e.state.shaftReactionTorque - e.config.mechanical.torque) < 1e-9);
