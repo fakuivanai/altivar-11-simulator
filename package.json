@@ -7,7 +7,8 @@
     "test": "node --import ./tests/register.mjs --test tests/unit/*.test.mjs",
     "build": "node build.mjs",
     "test:browser": "playwright test",
-    "verify": "pnpm check && pnpm test && pnpm build && pnpm test:browser"
+    "verify": "pnpm verify:light && pnpm test:browser",
+    "verify:light": "pnpm check && pnpm test && pnpm build"
   },
   "dependencies": {
     "solid-js": "1.9.17"

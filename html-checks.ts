@@ -17,8 +17,8 @@ function text(node: Node): string {
 }
 
 /** Validate generated files before they become deployable artifacts. */
-export function checkPages(files: ReadonlyMap<string, string>, officialUrls: readonly string[]): void {
-  const allowedDocuments = new Set(officialUrls);
+export function checkPages(files: ReadonlyMap<string, string>, officialUrls: readonly string[], referenceUrls: readonly string[] = []): void {
+  const allowedDocuments = new Set([...officialUrls, ...referenceUrls]);
   const applicationScripts: string[] = [];
   for (const [name, html] of files) {
     const elements = nodes(parse(html)).filter((node): node is Element => 'tagName' in node);

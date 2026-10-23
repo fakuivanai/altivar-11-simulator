@@ -1,4 +1,6 @@
 import type { ParameterValues } from './parameter-types';
+import type { MotorCircuitParameters } from './motor-circuit';
+export type MotorElectrical = { mode: 'estimated' } | { mode: 'manual'; parameters: MotorCircuitParameters };
 export type { CodeValue, ParameterId, ParameterValues } from './parameter-types';
 export const PHASES = ['U', 'V', 'W'] as const;
 export type Phase = typeof PHASES[number];
@@ -49,6 +51,8 @@ export interface Inputs {
 export interface EngineConfiguration {
     parameters: ParameterValues;
     motor: MotorSpecification;
+    /** Absent in legacy callers: estimate from the nameplate. */
+    motorElectrical?: MotorElectrical;
     mechanical: MechanicalLoad;
     inputs: Inputs;
 }
@@ -56,6 +60,7 @@ export interface EngineConfiguration {
 export type ReadonlyEngineConfiguration = {
     readonly parameters: Readonly<ParameterValues>;
     readonly motor: Readonly<MotorSpecification>;
+    readonly motorElectrical?: { readonly mode: 'estimated' } | { readonly mode: 'manual'; readonly parameters: Readonly<MotorCircuitParameters> };
     readonly mechanical: Readonly<MechanicalLoad>;
     readonly inputs: Readonly<Omit<Inputs, 'outputConnections'>> & {
         readonly outputConnections: Readonly<OutputConnections>;
@@ -148,6 +153,14 @@ export interface DriveState extends MonitorReadings, PhysicalReadings {
     /** Compatibility alias derived from output.mode. */
     outputMode: ElectricalOutput['mode'];
     regenerativePower: number;
+    statorFluxAlpha: number;
+    statorFluxBeta: number;
+    rotorFluxAlpha: number;
+    rotorFluxBeta: number;
+    magneticEnergy: number;
+    inputPower: number;
+    motorCopperLoss: number;
+    busPrecharging: boolean;
     armed: boolean;
     HSU: number;
 }

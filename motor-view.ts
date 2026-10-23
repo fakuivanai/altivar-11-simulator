@@ -248,6 +248,7 @@ export function makeMotorView(canvas: HTMLCanvasElement): MotorView {
   document.body.append(fallback);
   const originalVisibility = canvas.style.visibility;
   let lastAngle: number | null = null;
+  let lastFrame: { angle: number; width: number; height: number; ratio: number; resources: Resources } | null = null;
   let state: ViewState;
   function initialize(gl: WebGLRenderingContext): ViewState {
     const result = createResources(gl, geometry);
@@ -275,6 +276,10 @@ export function makeMotorView(canvas: HTMLCanvasElement): MotorView {
     const ratio = window.devicePixelRatio;
     invariant(Number.isFinite(ratio) && ratio > 0, 'densidad de píxeles inválida');
     const width = Math.max(1, Math.round(bounds.width * ratio)), height = Math.max(1, Math.round(bounds.height * ratio));
+    // A stationary canvas retains its displayed frame. Resource identity also
+    // invalidates this cache when a lost WebGL context is restored.
+    if (lastFrame?.angle === angle && lastFrame.width === bounds.width && lastFrame.height === bounds.height
+      && lastFrame.ratio === ratio && lastFrame.resources === resources && canvas.width === width && canvas.height === height) return;
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
     fallback.style.display = 'none'; canvas.style.visibility = originalVisibility;
     gl.viewport(0, 0, width, height); gl.clearColor(1, 1, 1, 1);
@@ -283,11 +288,13 @@ export function makeMotorView(canvas: HTMLCanvasElement): MotorView {
     gl.uniformMatrix4fv(resources.clip, false, cameraProjection(bounds.width / bounds.height));
     drawMesh(gl, resources, resources.housing, IDENTITY);
     drawMesh(gl, resources, resources.rotor, rotation(angle));
+    lastFrame = { angle, width: bounds.width, height: bounds.height, ratio, resources };
   }
   const lost = (event: Event): void => {
     event.preventDefault();
     if (state.kind === 'disposed') return;
     state = { kind: 'lost' };
+    lastFrame = null;
     showFallback('Se perdió la vista 3D. Esperando recuperar WebGL.');
   };
   const restored = (): void => {
@@ -307,6 +314,7 @@ export function makeMotorView(canvas: HTMLCanvasElement): MotorView {
       if (state.kind === 'disposed') return;
       if (state.kind === 'ready') deleteResources(state.gl, state.resources);
       state = { kind: 'disposed' };
+      lastFrame = null;
       observer?.disconnect();
       canvas.removeEventListener('webglcontextlost', lost); canvas.removeEventListener('webglcontextrestored', restored);
       canvas.style.visibility = originalVisibility;

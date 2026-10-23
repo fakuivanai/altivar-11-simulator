@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import * as W from '../../waveforms.ts';
 import { injectionTopology } from '../../electrical.ts';
 import { VFDDrive as Engine } from '../../engine.ts';
+import { estimateMotorCircuit, steadyStateMotor } from '../../motor-circuit.ts';
 import CATALOG from '../../catalog-final.json' with { type: 'json' };
 const base = {
   mode: 'ac',
@@ -274,6 +275,8 @@ function config(change) {
       ventilation: 1
     }
   };
+  // These output/circuit cases use enough IR compensation to start the 1.2 N m bench.
+  c.parameters['drC.UFr'] = 75;
   change(c);
   return c;
 }
@@ -284,6 +287,7 @@ test('Engine: motoring current lags less than 90 degrees, more load means smalle
   }));
   const loaded = new Engine(config(c => {
     c.mechanical.torque = 2.2;
+    c.parameters['drC.UFr'] = 100;
     c.parameters['FUn.tOL'] = 0;
   }));
   for (const e of [light, loaded]) {
@@ -294,12 +298,17 @@ test('Engine: motoring current lags less than 90 degrees, more load means smalle
     assert.equal(e.state.outputMode, 'ac');
   }
   assert.ok(loaded.state.currentLag < light.state.currentLag && light.state.currentLag < Math.PI / 2);
-  assert.ok(Math.abs(Math.cos(loaded.state.currentLag) - 0.8) < 0.15, 'near rated load the displacement is near the nameplate cos phi: ' + Math.cos(loaded.state.currentLag));
+  // The inverter's available voltage/frequency differ from the nameplate point.
+  const r = loaded.state, circuit = estimateMotorCircuit(loaded.config.motor).circuit;
+  const expected = steadyStateMotor(circuit, r.voltage, r.frequency, r.omega).powerFactor;
+  assert.ok(Math.abs(Math.cos(r.currentLag) - expected) < .03,
+    'Displacement follows the circuit at the actual operating point');
 });
 test('Engine: braking a large inertia makes the current lag more than 90 degrees', () => {
   const e = new Engine(config(c => {
     c.mechanical.inertia = .05;
     c.mechanical.torque = 0;
+    c.parameters.dEC = 1;
     c.parameters['FUn.tUL'] = 0;
     c.parameters['FUn.brA'] = 'nO';
     c.inputs.brakeModule = true;
@@ -311,9 +320,18 @@ test('Engine: braking a large inertia makes the current lag more than 90 degrees
   e.setInputs({
     LI1: false
   });
-  e.advance(0.6);
-  assert.ok(e.state.running && e.state.regenerativePower > 0);
-  assert.ok(e.state.currentLag > Math.PI / 2, 'lag ' + e.state.currentLag);
+  // Faster deceleration must return more mechanical work than the copper loss.
+  let regenerating = false;
+  for (let n = 0; n < 400; n++) {
+    e.advance(.005);
+    if (e.state.running && e.state.regenerativePower > 10) {
+      regenerating = true;
+      assert.ok(e.state.torque < 0 && e.state.rpm > 1000);
+      assert.ok(e.state.currentLag > Math.PI / 2, 'lag ' + e.state.currentLag);
+      break;
+    }
+  }
+  assert.ok(regenerating);
 });
 test('Engine: DC injection and idle output modes', () => {
   const e = new Engine(config(c => {
@@ -383,6 +401,7 @@ test('Reverse braking regenerates while its current still has inductive lag', ()
   const e = new Engine(config(c => {
     c.mechanical.inertia = .05;
     c.mechanical.torque = 0;
+    c.parameters.dEC = 1;
     c.parameters['FUn.tUL'] = 0;
     c.parameters['FUn.brA'] = 'nO';
     c.inputs.brakeModule = true;
@@ -394,9 +413,17 @@ test('Reverse braking regenerates while its current still has inductive lag', ()
   e.setInputs({
     LI2: false
   });
-  e.advance(.6);
-  assert.ok(e.state.frequency < 0 && e.state.torque > 0 && e.state.regenerativePower > 0);
-  assert.ok(e.state.currentLag > Math.PI / 2);
+  let regenerating = false;
+  for (let n = 0; n < 400; n++) {
+    e.advance(.005);
+    if (e.state.running && e.state.regenerativePower > 10) {
+      regenerating = true;
+      assert.ok(e.state.frequency < 0 && e.state.torque > 0 && e.state.rpm < -1000);
+      assert.ok(e.state.currentLag > Math.PI / 2);
+      break;
+    }
+  }
+  assert.ok(regenerating);
 });
 test('DC meters and traces agree for every connected injection pair', () => {
   for (const open of [null, 'U', 'V', 'W']) {
@@ -404,7 +431,8 @@ test('DC meters and traces agree for every connected injection pair', () => {
       c.parameters['FUn.AdC.ACt'] = 'Ct';
       if (open) c.inputs.outputConnections[open] = false;
     }));
-    e.advance(1);
+    // Include precharge before one second of physical PI settling.
+    e.advance(1.3);
     const signal = fromEngine(e),
       currents = W.phaseCurrents(signal, 0),
       d = W.duties(signal, 0);
@@ -414,7 +442,8 @@ test('DC meters and traces agree for every connected injection pair', () => {
     assert.ok(Math.abs(Object.values(currents).reduce((a, b) => a + b, 0)) < 1e-12);
     for (const phase of W.PHASES) assert.ok(Math.abs(Math.abs(currents[phase]) - signal.current[phase]) < 1e-12);
     assert.ok(Math.abs(Math.hypot(...Object.values(currents)) / Math.sqrt(3) - e.state.LCr) < 1e-12);
-    assert.ok(Math.abs(currents[connected[0]] - e.config.parameters['FUn.AdC.SdC']) < 1e-9);
+    // Physical PI settling is finite; the meter/trace identities stay exact.
+    assert.ok(Math.abs(currents[connected[0]] - e.config.parameters['FUn.AdC.SdC']) < 1e-5);
     for (const sink of connected.slice(1)) assert.ok(Math.abs((d[connected[0]] - d[sink]) * signal.dcBus - signal.voltage) < 1e-9);
   }
 });
@@ -440,32 +469,45 @@ test('No closed DC motor circuit carries no current', () => {
     });
   }
 });
-test('DC injection dissipates rotor energy without charging the bus', () => {
+test('Settled DC injection brakes a spinning rotor while importing electrical power', () => {
   const e = new Engine(config(c => {
     c.parameters.dEC = 0;
     c.parameters['FUn.AdC.tdC'] = 5;
     c.parameters['FUn.tUL'] = 0;
     c.mechanical.inertia = .05;
+    // Isolate injection braking from a passive load that can stop the shaft itself.
+    c.mechanical.torque = 0;
   }));
   e.setInputs({
     LI1: true
   });
   e.advance(12);
+  assert.ok(e.state.rpm > 1400 && e.state.fault === null);
   e.setInputs({
     LI1: false
   });
-  const before = e.state.dcBus;
-  let dc = false;
+  const rectifierPeak = e.config.inputs.supplyV * Math.SQRT2;
+  const settling = 5 * estimateMotorCircuit(e.config.motor).circuit.rotorTimeConstant;
+  const initialSpeed = e.state.rpm;
+  let dcStarted = null, settled = false, busEnvelope = rectifierPeak;
   for (let n = 0; n < 200; n++) {
     e.advance(.005);
     if (e.state.outputMode === 'dc') {
-      dc = true;
-      assert.equal(e.state.regenerativePower, 0);
+      dcStarted ??= e.state.time;
+      // Retained AC flux can return energy during the mode transition. Once
+      // that transient decays, DC input supplies copper loss and rotor braking.
+      if (e.state.time - dcStarted >= settling) {
+        if (!settled) busEnvelope = Math.max(rectifierPeak, e.state.dcBus);
+        settled = true;
+        assert.equal(e.state.regenerativePower, 0);
+        assert.ok(e.state.inputPower > 0 && e.state.torque * e.state.omega < 0);
+        // A live rectifier can recharge a ripple trough to its supply peak.
+        assert.ok(e.state.dcBus <= busEnvelope + 1e-8);
+      }
     }
     assert.equal(e.state.fault, null);
-    assert.ok(e.state.dcBus <= before + 1e-8);
   }
-  assert.ok(dc && e.state.rpm > 0);
+  assert.ok(settled && e.state.rpm > 0 && e.state.rpm < initialSpeed);
 });
 test('Inhibition and faults immediately clear the exported output mode', () => {
   const e = new Engine(config(() => {}));
@@ -478,6 +520,7 @@ test('Inhibition and faults immediately clear the exported output mode', () => {
   const f = new Engine(config(c => {
     c.inputs.shortCircuit = true;
   }));
+  f.advance(.3);
   f.setInputs({
     LI1: true
   });
@@ -495,12 +538,13 @@ test('Reverse zoom centers the selected signed electrical angle', () => {
   });
   assert.ok(Math.abs(W.angleAt(signal, zoom.start + zoom.length / 2) - Math.PI / 3) < 1e-12);
 });
-test('Opposite rotor and AC field directions consume power during plugging', () => {
+test('A controlled reversal reaches plugging with opposite rotor and AC field directions', () => {
   const e = new Engine(config(c => {
     c.mechanical.inertia = .1;
     c.mechanical.torque = 0;
     c.inputs.brakeModule = true;
     c.parameters['FUn.tUL'] = 0;
+    c.parameters['FUn.tOL'] = 0;
     c.parameters['FUn.brA'] = 'nO';
     c.parameters.ACC = 0;
     c.parameters.dEC = 0;
@@ -513,12 +557,15 @@ test('Opposite rotor and AC field directions consume power during plugging', () 
     LI1: false,
     LI2: true
   });
+  assert(e.state.rpm > 1400);
   let plugging = false;
-  for (let n = 0; n < 200; n++) {
+  // Finite frequency/current control crosses zero after decelerating the rotor.
+  for (let n = 0; n < 800; n++) {
     e.advance(.005);
     const r = e.state;
-    if (r.outputMode === 'ac' && r.frequency < -1 && r.rpm > 1000 && r.torque < 0) {
+    if (r.outputMode === 'ac' && r.frequency < -1 && r.rpm > 100 && r.torque < 0) {
       plugging = true;
+      assert.ok(r.inputPower > 0);
       assert.equal(r.regenerativePower, 0);
       assert.ok(r.currentLag < Math.PI / 2);
       break;

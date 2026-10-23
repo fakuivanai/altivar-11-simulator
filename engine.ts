@@ -1,11 +1,18 @@
 import type { ParameterId, ParameterValues } from './parameter-types';
 import { conductorMagnitudes, injectionTopology } from './electrical';
-import type { AnalogReading, Direction, DriveState, ElectricalOutput, EngineConfiguration, EngineConfigUpdate, FaultCode, Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, ReadonlyEngineConfiguration, RunningDirection } from './engine-types';
+import { PhysicalPlant } from './physical-plant';
+import { breakdownSlip, steadyStateMotor } from './motor-circuit';
+import type { ScopeSample } from './scope-history';
+import type {
+    AnalogReading, Direction, DriveState, ElectricalOutput, EngineConfiguration, EngineConfigUpdate, FaultCode,
+    Inputs, LogicInputAssignment, MonitorReadings, PhysicalReadings, ReadonlyEngineConfiguration,
+} from './engine-types';
 /* Original teaching model for ATV11HU09M2E. Parameter and I/O contracts are
    drawn from Schneider Electric ATV11 user manual V1.2 IE >=21, pp.26-33,
    https://se.my.site.com/ckmContent/sfc/servlet.shepherd/document/download/0698V00000lppRiQAI
    and technical manual ATV11 V1.2, pp.84,89-119,121-122.
-   The motor equations are an original reduced model, not copied firmware. */
+   Electrical and mechanical dynamics are implemented in physical-plant.ts.
+   Control/protection timing is a teaching model, not copied firmware. */
 const clamp = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 // Explicit domain copies also work when a caller uses a Solid store.
 function copyInputs(inputs: ReadonlyEngineConfiguration['inputs']): Inputs {
@@ -15,31 +22,29 @@ function copyConfiguration(config: ReadonlyEngineConfiguration): EngineConfigura
     return {
         parameters: { ...config.parameters },
         motor: { ...config.motor },
+        ...(config.motorElectrical ? { motorElectrical: config.motorElectrical.mode === 'manual'
+            ? { mode: 'manual' as const, parameters: { ...config.motorElectrical.parameters } }
+            : { mode: 'estimated' as const } } : {}),
         mechanical: { ...config.mechanical },
         inputs: copyInputs(config.inputs)
     };
 }
 // ATV11HU09M2E nominal current, technical manual p.69. Integration uses a teaching 5 ms step.
 const DRIVE_CURRENT = 2.1, FIXED_STEP = 0.005;
-// Original reduced motor/current model choices, not identified motor constants or firmware data.
-const MAGNETIZING_CURRENT_FRACTION = 0.35;
-const TORQUE_CURRENT_FACTOR = 0.93675;
-const LOCKED_ROTOR_CURRENT_MULTIPLE = 6;
-const SINGLE_PHASE_MAGNETIZING_CURRENT_FRACTION = 0.55;
-const SINGLE_PHASE_CURRENT_FACTOR = 1.4;
-const SINGLE_PHASE_TORQUE_RIPPLE_FRACTION = 0.18;
-const BREAKDOWN_SLIP_MULTIPLE = 4;
-const TORQUE_CURVE_NORMALIZATION = 1 + 1 / 16;
-const DC_INJECTION_VOLTAGE_SCALE = 20;
-const MOTOR_THERMAL_TIME = 45;
-const DRIVE_THERMAL_TIME = 60;
-const BASE_BRAKING_LOSS = 35;
-const BUS_CAPACITANCE = 0.0006;
+// Original teaching-controller assumptions, not identified drive firmware.
+export const CONTROL_MODEL = Object.freeze({
+    torqueMeasurementSeconds: .02, irCompensationReference: 100, twoKHzThresholdHz: 100,
+});
+// Thermal time constants are teaching assumptions, not identified firmware data.
+export const THERMAL_MODEL = Object.freeze({ motorSeconds: 45, driveSeconds: 60,
+    tripPercent: 118, motorResetPercent: 100, driveResetPercent: 80, memoryResetSeconds: .4 });
 
 function frozenConfiguration(config: ReadonlyEngineConfiguration): ReadonlyEngineConfiguration {
     const copy = copyConfiguration(config);
     Object.freeze(copy.parameters);
     Object.freeze(copy.motor);
+    if (copy.motorElectrical?.mode === 'manual') Object.freeze(copy.motorElectrical.parameters);
+    if (copy.motorElectrical) Object.freeze(copy.motorElectrical);
     Object.freeze(copy.mechanical);
     Object.freeze(copy.inputs.outputConnections);
     Object.freeze(copy.inputs);
@@ -48,6 +53,18 @@ function frozenConfiguration(config: ReadonlyEngineConfiguration): ReadonlyEngin
 const AUTO_FAULTS = new Set<FaultCode>(['OHF', 'OLF', 'OLC', 'ULF', 'ObF', 'OSF', 'PHF']);
 const POWER_RESET_FAULTS = new Set<FaultCode>(['OCF', 'SCF', 'InF', 'CrF', 'CFF']);
 type RuntimeDriveState = Omit<DriveState, keyof PhysicalReadings | 'output' | 'outputMode'>;
+interface DriveCommand {
+    direction: Direction;
+    nst: boolean;
+    enable: boolean;
+}
+interface OutputControl {
+    voltage: number;
+    driveLimit: number;
+    aggregateLimit: number;
+    slipCompensation: number;
+    dc: boolean;
+}
 export class VFDDrive {
     static readonly DRIVE_CURRENT = DRIVE_CURRENT;
     static readonly FIXED_STEP = FIXED_STEP;
@@ -63,8 +80,9 @@ export class VFDDrive {
     private trnDirection: Direction = 0;
     private piIntegral = 0;
     private frequencyVelocity = 0;
+    private measuredTorque = 0;
     private referenceDemand = 0;
-    private electricalPhase = 0;
+    private readonly plant: PhysicalPlant;
     private dcTime = Infinity;
     private wasRunning = false;
     private lowSpeedTime = 0;
@@ -80,10 +98,10 @@ export class VFDDrive {
     private autoAborted = false;
     private powerOffTime = 0;
     private controlledPowerStop = false;
-    private lastActiveDirection: RunningDirection = 1;
     get state(): Readonly<DriveState> { return this.snapshot(); }
     constructor(config: ReadonlyEngineConfiguration) {
         this.configuration = frozenConfiguration(config);
+        this.plant = new PhysicalPlant(this.configuration);
         this.runtimeState = stoppedState(config);
         this.previousInputs = copyInputs(config.inputs);
         this.previousPower = config.inputs.powered;
@@ -101,7 +119,14 @@ export class VFDDrive {
         return id !== 'nO' && this.configuration.inputs[id];
     }
     setConfig(config: ReadonlyEngineConfiguration, options: EngineConfigUpdate = {}): void {
-        this.configuration = frozenConfiguration(config);
+        const next = frozenConfiguration(config);
+        const motorChanged = JSON.stringify(next.motor) !== JSON.stringify(this.configuration.motor)
+            || JSON.stringify(next.motorElectrical ?? { mode: 'estimated' })
+                !== JSON.stringify(this.configuration.motorElectrical ?? { mode: 'estimated' });
+        if (!options.reset && motorChanged && (this.electricalMode !== 'off' || Math.abs(this.runtimeState.omega) > .05))
+            throw new RangeError('Desactive la salida y detenga el eje para cambiar el motor.');
+        this.plant.configureMotor(next, options.reset || this.electricalMode === 'off' && Math.abs(this.runtimeState.omega) <= .05);
+        this.configuration = next;
         if (options.reset) this.reset();
         else if (options.resetControl) this.inhibitCommands();
     }
@@ -111,6 +136,7 @@ export class VFDDrive {
         this.directionLatch = 0;
         this.trnDirection = 0;
         this.piIntegral = 0;
+        this.measuredTorque = 0;
         this.frequencyVelocity = 0;
         this.dcTime = Infinity;
         this.wasRunning = false;
@@ -122,7 +148,9 @@ export class VFDDrive {
         this.overspeedTime = 0;
         this.previousInputs = copyInputs(this.configuration.inputs);
         this.electricalMode = 'off';
-        Object.assign(s, { running: false, direction: 0, frequency: 0, reference: 0, rampFrequency: 0, voltage: 0, current: 0, torque: 0, currentLimited: false, referenceReached: false, piActive: false, armed: this.commandReady });
+        Object.assign(s, { running: false, direction: 0, frequency: 0, reference: 0, rampFrequency: 0,
+            voltage: 0, current: 0, torque: 0, currentLimited: false, referenceReached: false,
+            piActive: false, armed: this.commandReady });
         this.referenceDemand = this.reference(0, 0);
         Object.assign(s, this.monitors());
         this.outputs();
@@ -144,8 +172,9 @@ export class VFDDrive {
         this.directionLatch = 0;
         this.trnDirection = 0;
         this.piIntegral = 0;
+        this.measuredTorque = 0;
         this.frequencyVelocity = 0;
-        this.electricalPhase = 0;
+        this.plant.reset();
         this.dcTime = Infinity;
         this.wasRunning = false;
         this.previousPower = !!this.configuration.inputs.powered;
@@ -162,11 +191,13 @@ export class VFDDrive {
         this.autoAborted = false;
         this.powerOffTime = 0;
         this.controlledPowerStop = false;
-        this.lastActiveDirection = 1;
         this.referenceDemand = this.reference(0, 0);
         Object.assign(this.runtimeState, this.monitors());
     }
-    private runSignalsPresent(): boolean { const rr = this.p('FUn.rrS'); return this.input(this.p('FUn.tCC.ACt') === '3C' ? 'LI2' : 'LI1') || this.input(rr); }
+    private runSignalsPresent(): boolean {
+        const reverseInput = this.p('FUn.rrS');
+        return this.input(this.p('FUn.tCC.ACt') === '3C' ? 'LI2' : 'LI1') || this.input(reverseInput);
+    }
     private rising(id: LogicInputAssignment): boolean { return id !== 'nO' && this.input(id) && !this.previousInputs[id]; }
     private command(): Direction {
         const mode = this.p('FUn.tCC.ACt'), type = this.p('FUn.tCC.tCt');
@@ -238,7 +269,8 @@ export class VFDDrive {
         if (pi) {
             const pr2 = this.input(this.p('FUn.PI.Pr2')), pr4 = this.input(this.p('FUn.PI.Pr4'));
             /* Technical manual p.102: 11 = PI3, 10 = PI4, unlike speed preset binary order. */
-            s.piReference = pr2 && pr4 ? this.p('FUn.PI.PI3') : pr4 ? this.p('FUn.PI.PI4') : pr2 ? this.p('FUn.PI.PI2') : this.p('FUn.PI.rPI');
+            s.piReference = pr2 && pr4 ? this.p('FUn.PI.PI3')
+                : pr4 ? this.p('FUn.PI.PI4') : pr2 ? this.p('FUn.PI.PI2') : this.p('FUn.PI.rPI');
             s.piError = (s.piReference - s.piFeedback) / 100 * (this.p('FUn.PI.PIC') === 'YES' ? -1 : 1);
             const proportional = this.p('FUn.PI.rPG') * s.piError;
             const manual = b ? this.p('SP4') : this.p('SP2');
@@ -270,6 +302,7 @@ export class VFDDrive {
         if (this.runtimeState.fault)
             return;
         this.runtimeState.fault = code;
+        this.measuredTorque = 0;
         this.electricalMode = 'off';
         this.runtimeState.running = false;
         this.runtimeState.piActive = false;
@@ -290,19 +323,19 @@ export class VFDDrive {
     private faultCauseGone(code: FaultCode): boolean {
         const s = this.runtimeState, i = this.configuration.inputs, bus = i.supplyV * Math.SQRT2;
         if (code === 'OLF')
-            return s.motorThermal < 100;
+            return s.motorThermal < THERMAL_MODEL.motorResetPercent;
         if (code === 'OHF')
-            return s.driveThermal < 80;
+            return s.driveThermal < THERMAL_MODEL.driveResetPercent;
         if (code === 'OSF')
             return bus <= 415;
         if (code === 'ObF')
             return s.dcBus <= 415;
         if (code === 'USF')
-            return !!i.powered && bus >= 230;
+            return !!i.powered && bus >= 230 && !this.plant.dcLink.precharging && s.dcBus >= 230;
         if (code === 'SCF')
             return !i.shortCircuit;
         if (code === 'OLC')
-            return !i.shaftHeld && Math.abs(this.configuration.mechanical.torque) + this.configuration.mechanical.friction * Math.abs(s.omega) <= this.motorTorqueAtCurrent(DRIVE_CURRENT * this.p('FUn.LOC') / 100);
+            return !i.shaftHeld && this.estimatedLoadCurrent() <= DRIVE_CURRENT * this.p('FUn.LOC') / 100;
         if (code === 'ULF')
             return this.connectedOutputCount() >= 2 && this.estimatedLoadCurrent() >= DRIVE_CURRENT * this.p('FUn.LUL') / 100;
         if (code === 'SOF')
@@ -336,9 +369,28 @@ export class VFDDrive {
         this.lowSpeedSleeping = false;
         return true;
     }
-    private nominalTorque(): number { return 1000 * this.configuration.motor.powerKW / Math.max(this.configuration.motor.speedRPM * Math.PI / 30, 0.01); }
-    private motorTorqueAtCurrent(current: number): number { const ir = this.configuration.motor.current; return this.nominalTorque() * Math.sqrt(Math.max(0, current * current - (MAGNETIZING_CURRENT_FRACTION * ir) ** 2)) / (TORQUE_CURRENT_FACTOR * ir); }
-    private estimatedLoadCurrent(): number { const m = this.configuration.motor, load = Math.abs(this.configuration.mechanical.torque) + this.configuration.mechanical.friction * m.speedRPM * Math.PI / 30; return Math.hypot(MAGNETIZING_CURRENT_FRACTION * m.current, TORQUE_CURRENT_FACTOR * m.current * load / this.nominalTorque()); }
+    private nominalTorque(): number {
+        const motor = this.configuration.motor;
+        return 1000 * motor.powerKW / Math.max(motor.speedRPM * Math.PI / 30, 0.01);
+    }
+    // With the bridge off there is no measured load current. Reset eligibility
+    // uses the balanced steady-state circuit at rated frequency, not the old
+    // independent torque/current scale. This is a diagnostic assumption.
+    private estimatedLoadCurrent(): number {
+        const { motor: m, mechanical: load, inputs } = this.configuration;
+        const circuit = this.plant.circuit, synchronous = 2 * Math.PI * m.frequency / circuit.polePairs;
+        const demand = Math.abs(load.torque) + load.friction * m.speedRPM * Math.PI / 30;
+        const voltage = Math.min(inputs.supplyV, this.p('drC.UnS'));
+        const point = (slip: number) => steadyStateMotor(circuit, voltage, m.frequency, synchronous * (1 - slip));
+        let low = 0, high = Math.min(1, breakdownSlip(circuit, m.frequency));
+        if (point(high).torque < demand) return Infinity;
+        for (let iteration = 0; iteration < 28; iteration++) {
+            const middle = (low + high) / 2;
+            if (point(middle).torque < demand) low = middle;
+            else high = middle;
+        }
+        return point((low + high) / 2).current;
+    }
     private connectedOutputCount(): number {
         const wires = this.configuration.inputs.outputConnections;
         return Number(wires.U) + Number(wires.V) + Number(wires.W);
@@ -375,37 +427,55 @@ export class VFDDrive {
         if (!Number.isFinite(dt) || dt < 0 || dt > 600)
             throw new Error('Invalid elapsed time');
         this.accumulator += dt;
-        const n = Math.floor((this.accumulator + 1e-10) / FIXED_STEP);
-        this.accumulator -= n * FIXED_STEP;
+        const stepCount = Math.floor((this.accumulator + 1e-10) / FIXED_STEP);
+        this.accumulator -= stepCount * FIXED_STEP;
         if (this.accumulator < 0)
             this.accumulator = 0;
-        for (let k = 0; k < n; k++)
+        for (let step = 0; step < stepCount; step++)
             this.tick(FIXED_STEP);
         return this.state;
     }
     step(dt: number): Readonly<DriveState> { return this.advance(dt); }
+    onPhysicalSample(listener: ((sample: ScopeSample) => void) | undefined): void { this.plant.setSampleListener(listener); }
+    /** A rendering slice may leave time queued; fixed physics steps stay intact. */
+    advanceBudget(dt: number, budgetMs = 8, now: () => number = () => performance.now()): { steps: number; backlog: number } {
+        if (!Number.isFinite(dt) || dt < 0 || !Number.isFinite(budgetMs) || budgetMs <= 0)
+            throw new RangeError('Invalid elapsed time or frame budget');
+        this.accumulator += dt;
+        const available = Math.floor((this.accumulator + 1e-10) / FIXED_STEP), start = now();
+        let steps = 0;
+        while (steps < available && (steps === 0 || now() - start < budgetMs)) { this.tick(FIXED_STEP); steps++; }
+        this.accumulator = Math.max(0, this.accumulator - steps * FIXED_STEP);
+        return { steps, backlog: this.accumulator };
+    }
     private tick(dt: number): void {
-        const s = this.runtimeState, i = this.configuration.inputs, m = this.configuration.motor, l = this.configuration.mechanical;
-        // The external clamp absorbs the rotor's initial kinetic energy. That
-        // impulse is mechanical work at the clamp, not regenerated bus energy.
-        if (i.shaftHeld) s.omega = 0;
-        const connectedOutputs = this.connectedOutputCount();
-        const wasPowered = this.previousPower, power = !!i.powered;
-        s.time += dt;
+        const power = this.configuration.inputs.powered;
+        this.runtimeState.time += dt;
+        this.updatePowerState(dt, power);
+        const command = this.readCommand(dt, power);
+        const control = this.controlOutput(dt, power, command);
+        this.advancePlant(dt, control);
+        this.updateElectricalProtections(dt, power, control.aggregateLimit);
+        this.updateReferenceReached(control.slipCompensation);
+        this.updateLoadProtections(dt);
+        this.publishReadings(power, command.nst, control.dc);
+    }
+    private updatePowerState(dt: number, power: boolean): void {
+        const state = this.runtimeState, wasPowered = this.previousPower;
         if (!power) {
             this.powerOffTime += dt;
             if (wasPowered) {
-                this.controlledPowerStop = this.p('FUn.StP') !== 'nO' && s.running;
+                this.controlledPowerStop = this.p('FUn.StP') !== 'nO' && state.running;
                 this.directionLatch = 0;
                 this.trnDirection = 0;
             }
-            if (this.powerOffTime > 0.4) {
-                s.motorThermal = 0;
+            if (this.powerOffTime > THERMAL_MODEL.memoryResetSeconds) {
+                state.motorThermal = 0;
                 this.commandReady = false;
             }
         }
         else if (!wasPowered) {
-            const cycled = this.powerOffTime > 0.4;
+            const cycled = this.powerOffTime > THERMAL_MODEL.memoryResetSeconds;
             this.powerOffTime = 0;
             if (cycled) {
                 this.resetFault(true, false);
@@ -415,7 +485,7 @@ export class VFDDrive {
                 this.autoNext = 1;
                 this.autoAttempts = 0;
                 this.autoAborted = false;
-                s.motorThermal = 0;
+                state.motorThermal = 0;
             }
             this.commandReady = this.p('FUn.Atr') === 'YES' || !this.runSignalsPresent();
             this.controlledPowerStop = false;
@@ -423,6 +493,9 @@ export class VFDDrive {
         if (this.rising(this.p('FUn.rSF')))
             this.resetFault(false, false);
         this.automaticReset(dt);
+    }
+    private readCommand(dt: number, power: boolean): DriveCommand {
+        const state = this.runtimeState, inputs = this.configuration.inputs, motor = this.configuration.motor;
         let direction = this.command();
         const nst = this.p('FUn.nSt') !== 'nO' && !this.input(this.p('FUn.nSt'));
         if (nst) {
@@ -435,7 +508,7 @@ export class VFDDrive {
         const reference = this.reference(dt, direction);
         this.referenceDemand = reference;
         if (reference <= this.p('LSP') + 0.001 && direction) {
-            if (s.referenceReached && Math.abs(s.reference - direction * reference) < 0.05)
+            if (state.referenceReached && Math.abs(state.reference - direction * reference) < 0.05)
                 this.lowSpeedTime += dt;
             if (this.p('FUn.tLS') > 0 && this.lowSpeedTime >= this.p('FUn.tLS'))
                 this.lowSpeedSleeping = true;
@@ -445,68 +518,54 @@ export class VFDDrive {
             // Tech pp.103/107 place PIC before the wake threshold. Comparing
             // the signed correction is a model interpretation: a negative
             // error requests less speed and does not itself wake the process.
-            if (reference > this.p('LSP') + 0.001 && (!s.piActive || s.piError * 1000 >= this.p('FUn.PI.rSL')))
+            if (reference > this.p('LSP') + 0.001 && (!state.piActive || state.piError * 1000 >= this.p('FUn.PI.rSL')))
                 this.lowSpeedSleeping = false;
         }
         if (this.lowSpeedSleeping)
             direction = 0;
-        if (direction)
-            this.lastActiveDirection = direction;
-        let enable = power && !s.fault && !nst;
-        if (!power && this.controlledPowerStop && s.dcBus >= 230 && !s.fault) {
+        let enable = power && !state.fault && !nst && !this.plant.dcLink.precharging;
+        if (!power && this.controlledPowerStop && state.dcBus >= 230 && !state.fault) {
             enable = true;
             direction = 0;
         }
-        if (power && i.supplyV * Math.SQRT2 > 415)
+        if (power && inputs.supplyV * Math.SQRT2 > 415)
             this.trip('OSF');
-        if (power && i.supplyV * Math.SQRT2 < 230)
+        if (power && inputs.supplyV * Math.SQRT2 < 230)
             this.trip('USF');
-        if (s.fault)
+        if (state.fault)
             enable = false;
         if (direction && !this.wasRunning && enable) {
             if (this.p('FUn.FLr') === 'YES') {
-                s.rampFrequency = s.omega * m.poles / (4 * Math.PI);
-                s.frequency = s.rampFrequency;
+                state.rampFrequency = state.omega * motor.poles / (4 * Math.PI);
+                state.frequency = state.rampFrequency;
             }
             this.dcTime = Infinity;
         }
         const target = direction * reference;
-        s.reference = target;
-        s.direction = direction;
-        s.armed = this.commandReady;
-        const secondRamp = this.input(this.p('FUn.rP2.LI'));
-        const acc = this.p(secondRamp ? 'FUn.rP2.AC2' : 'ACC');
-        let dec = this.p(secondRamp ? 'FUn.rP2.dE2' : 'dEC');
-        if (!power && this.p('FUn.StP') === 'FSt')
-            dec = 0.1;
-        const frs = this.p('drC.FrS'), oldRamp = s.rampFrequency;
-        const reversing = oldRamp * target < 0;
-        const intermediate = reversing ? 0 : target;
-        const accelerating = Math.abs(intermediate) > Math.abs(oldRamp);
-        const rampTime = accelerating ? acc : dec;
-        const maxDelta = rampTime === 0 ? Infinity : frs / rampTime * dt;
-        if (enable) {
-            const delta = clamp(intermediate - oldRamp, -maxDelta, maxDelta);
-            if (!(s.currentLimited && accelerating))
-                s.rampFrequency += delta;
-        }
-        else {
-            s.rampFrequency = 0;
-            this.frequencyVelocity = 0;
-            s.frequency = 0;
-        }
+        state.reference = target;
+        state.direction = direction;
+        state.armed = this.commandReady;
+        return { direction, nst, enable };
+    }
+    private controlOutput(dt: number, power: boolean, command: DriveCommand): OutputControl {
+        const state = this.runtimeState, inputs = this.configuration.inputs, motor = this.configuration.motor;
+        const { direction, nst } = command;
+        let { enable } = command;
+        const connectedOutputs = this.connectedOutputCount();
+        this.updateRamp(dt, power, direction, enable);
+        const frs = this.p('drC.FrS');
         const wasRunning = this.wasRunning;
-        s.running = enable && (direction !== 0 || Math.abs(s.rampFrequency) > 0.05);
-        s.piActive = s.piActive && enable && s.running;
-        if (wasRunning && !s.running && !s.fault && !nst && power)
+        state.running = enable && (direction !== 0 || Math.abs(state.rampFrequency) > 0.05);
+        state.piActive = state.piActive && enable && state.running;
+        if (wasRunning && !state.running && !state.fault && !nst && power)
             this.dcTime = 0;
         const dcMode = this.p('FUn.AdC.ACt');
-        let dc = enable && !s.running && !nst && dcMode !== 'nO' &&
+        let dc = enable && !state.running && !nst && dcMode !== 'nO' &&
             (this.p('FUn.tCC.ACt') !== '3C' || this.input('LI1')) &&
             (dcMode === 'Ct' || this.dcTime < this.p('FUn.AdC.tdC'));
         // A passive bridge is exposed to SCF protection when AC output or DC
         // injection energizes it. An idle output has no short-circuit current.
-        if (enable && i.shortCircuit && (s.running || dc)) {
+        if (enable && inputs.shortCircuit && (state.running || dc)) {
             this.trip('SCF');
             enable = false;
             dc = false;
@@ -514,221 +573,208 @@ export class VFDDrive {
         if (dc)
             this.dcTime += dt;
         const driveLimit = this.input(this.p('FUn.LC2.LI')) ? this.p('FUn.LC2.CL2') : this.p('drC.CLI');
-        s.activeCurrentLimit = driveLimit;
+        state.activeCurrentLimit = driveLimit;
         // CLI/CL2 constrain each conducting line. LCr is the three-line RMS,
         // so two equal conducting lines have a lower aggregate current cap.
         const aggregateLimit = connectedOutputs === 2 ? driveLimit * Math.sqrt(2 / 3) : driveLimit;
-        const ratedTorque = this.nominalTorque(), rotorHz = s.omega * m.poles / (4 * Math.PI);
-        const actualSlip = Math.max(0.2, m.frequency - m.speedRPM * m.poles / 120);
+        const ratedTorque = this.nominalTorque(), rotorHz = state.omega * motor.poles / (4 * Math.PI);
+        const actualSlip = Math.max(0.2, motor.frequency - motor.speedRPM * motor.poles / 120);
         const controlVector = this.p('drC.FLG') > 0 && this.p('drC.StA') > 0;
-        const inferredTorque = Math.abs(s.torque) / ratedTorque * m.current / Math.max(0.05, this.p('drC.nCr')) * m.cosPhi / this.p('drC.COS');
-        let slipComp = controlVector ? this.p('drC.nSL') * this.p('drC.SLP') / 100 * inferredTorque * Math.sign(s.rampFrequency) : 0;
-        slipComp = clamp(slipComp, -15, 15);
-        const commandedFrequency = s.rampFrequency + slipComp;
-        if (enable && s.running) {
+        // The drive's torque estimate is filtered separately from physical
+        // torque. Otherwise 100 Hz bus ripple chatters the slip-demand/reached
+        // comparison at a 5 ms control step.
+        this.measuredTorque += (state.torque - this.measuredTorque)
+            * -Math.expm1(-dt / CONTROL_MODEL.torqueMeasurementSeconds);
+        const inferredTorque = Math.abs(this.measuredTorque) / ratedTorque * motor.current
+            / Math.max(0.05, this.p('drC.nCr')) * motor.cosPhi / this.p('drC.COS');
+        let slipCompensation = controlVector && direction !== 0
+            ? this.p('drC.nSL') * this.p('drC.SLP') / 100 * inferredTorque * Math.sign(state.rampFrequency) : 0;
+        slipCompensation = clamp(slipCompensation, -15, 15);
+        let commandedFrequency = state.rampFrequency + slipCompensation;
+        let brakingFloor: number | undefined;
+        // brA changes the frequency demand before excitation. It does not
+        // discard regenerated energy or override electromagnetic torque.
+        if (enable && state.running && this.p('FUn.brA') === 'YES' && !inputs.brakeModule && state.omega * commandedFrequency >= 0
+            && Math.abs(rotorHz) > Math.abs(commandedFrequency)) {
+            const allowedSlip = actualSlip * .1 * clamp((350 - state.dcBus) / 30, 0, 1);
+            const following = rotorHz - Math.sign(state.omega) * allowedSlip;
+            commandedFrequency = state.omega > 0 ? Math.max(commandedFrequency, following) : Math.min(commandedFrequency, following);
+            state.rampFrequency = commandedFrequency - slipCompensation;
+            brakingFloor = following;
+        }
+        if (enable && state.running) {
             const gain = this.p('drC.FLG'), stability = this.p('drC.StA');
             const wn = controlVector ? 3 + gain * 0.28 : 20;
             const damping = controlVector ? 0.35 + stability * 0.0425 : 1;
-            this.frequencyVelocity += (wn * wn * (commandedFrequency - s.frequency) - 2 * damping * wn * this.frequencyVelocity) * dt;
+            this.frequencyVelocity += (wn * wn * (commandedFrequency - state.frequency) - 2 * damping * wn * this.frequencyVelocity) * dt;
             this.frequencyVelocity = clamp(this.frequencyVelocity, -1000, 1000);
-            s.frequency = clamp(s.frequency + this.frequencyVelocity * dt, -220, 220);
+            state.frequency = clamp(state.frequency + this.frequencyVelocity * dt, -220, 220);
+            // The adapted demand already follows the changing rotor speed.
+            // Filtering it again leaves positive slip during deceleration and
+            // makes the field keep motoring. Track that active limit directly;
+            // voltage, flux and current still evolve in the physical motor.
+            if (brakingFloor !== undefined) {
+                state.frequency = commandedFrequency;
+                this.frequencyVelocity = 0;
+            }
         }
         else {
-            s.frequency = 0;
+            state.frequency = 0;
             this.frequencyVelocity = 0;
         }
-        this.electricalPhase = (this.electricalPhase + 2 * Math.PI * s.frequency * dt) % (2 * Math.PI);
-        let voltage = 0, flux = 0, te = 0, requestCurrent = 0, lag = s.currentLag;
-        if (enable && s.running) {
-            const f = Math.abs(s.frequency);
-            const boost = this.p('drC.UFr') / 50 * 6 * Math.exp(-f / 8);
-            voltage = Math.min(i.supplyV, this.p('drC.UnS') * Math.min(f / frs, 1) + boost);
-            flux = clamp(voltage / Math.max(f, 2) / (m.voltage / m.frequency), 0, 1.6);
+        let voltage = 0;
+        if (enable && state.running) {
+            const fraction = Math.min(Math.abs(state.frequency) / frs, 1);
+            const nominalVoltage = this.p('drC.UnS');
+            // V/f loses flux when Rs*I is no longer negligible. This original
+            // scalar profile adds the configured UFr percentage of the nominal
+            // resistive drop, tapered to zero at FrS. It is a teaching profile,
+            // not an identified firmware equation. Excessive UFr can overexcite
+            // a lightly loaded motor; CLI still acts through physical voltage.
+            // https://imperix.com/doc/implementation/vf-control-induction-machine
+            const resistiveDrop = Math.sqrt(3) * this.plant.circuit.statorResistance * this.p('drC.nCr');
+            const boost = Math.min(nominalVoltage, resistiveDrop * this.p('drC.UFr')
+                / CONTROL_MODEL.irCompensationReference);
+            voltage = Math.min(inputs.supplyV, nominalVoltage * fraction + boost * (1 - fraction));
         }
-        if (enable && s.running && connectedOutputs >= 2) {
-            const slip = s.frequency - rotorHz, breakdown = actualSlip * BREAKDOWN_SLIP_MULTIPLE;
-            const curve = (slip / actualSlip) / (1 + (slip / breakdown) ** 2) * TORQUE_CURVE_NORMALIZATION;
-            te = ratedTorque * curve * flux * flux;
-            let mag = MAGNETIZING_CURRENT_FRACTION * m.current * flux;
-            requestCurrent = Math.hypot(mag, TORQUE_CURRENT_FACTOR * m.current * te / (ratedTorque * Math.max(flux, 0.05)));
-            const lockedCurrent = LOCKED_ROTOR_CURRENT_MULTIPLE * m.current * flux * Math.min(Math.abs(s.frequency) / m.frequency, 1);
-            if (connectedOutputs === 2) {
-                /* Original single-phase teaching approximation. Two equal
-                   counter-rotating fields cancel exactly at rest. A spinning
-                   rotor has reduced mean torque and twice-frequency ripple.
-                   Coefficients 0.55, 1.4, 6 and 0.18 are model choices, not
-                   Schneider protection settings or measured motor constants. */
-                const backwardSlip = -s.frequency - rotorHz;
-                const backwardCurve = (backwardSlip / actualSlip) / (1 + (backwardSlip / breakdown) ** 2) * TORQUE_CURVE_NORMALIZATION;
-                const forwardTorque = te / 2;
-                const backwardTorque = ratedTorque * backwardCurve * flux * flux / 2;
-                const moving = clamp(Math.abs(rotorHz) / Math.max(Math.abs(s.frequency), 1), 0, 1);
-                const ripple = SINGLE_PHASE_TORQUE_RIPPLE_FRACTION * ratedTorque * flux * flux * moving * Math.sin(2 * this.electricalPhase);
-                te = forwardTorque + backwardTorque + ripple;
-                mag = SINGLE_PHASE_MAGNETIZING_CURRENT_FRACTION * m.current * flux;
-                const fieldCurrent = SINGLE_PHASE_CURRENT_FACTOR * TORQUE_CURRENT_FACTOR * m.current * Math.hypot(forwardTorque, backwardTorque) / (ratedTorque * Math.max(flux, 0.05));
-                requestCurrent = Math.hypot(mag, fieldCurrent, lockedCurrent * (1 - moving));
+        this.electricalMode = enable && state.running ? 'ac' : dc ? 'dc' : 'off';
+        return { voltage, driveLimit, aggregateLimit, slipCompensation, dc };
+    }
+    private updateRamp(dt: number, power: boolean, direction: Direction, enable: boolean): void {
+        const state = this.runtimeState, motor = this.configuration.motor;
+        const target = state.reference, connectedOutputs = this.connectedOutputCount();
+        const secondRamp = this.input(this.p('FUn.rP2.LI'));
+        const acc = this.p(secondRamp ? 'FUn.rP2.AC2' : 'ACC');
+        let dec = this.p(secondRamp ? 'FUn.rP2.dE2' : 'dEC');
+        if (!power && this.p('FUn.StP') === 'FSt')
+            dec = 0.1;
+        const frs = this.p('drC.FrS'), oldRamp = state.rampFrequency;
+        const reversing = oldRamp * target < 0;
+        const intermediate = reversing ? 0 : target;
+        const accelerating = Math.abs(intermediate) > Math.abs(oldRamp);
+        const rampTime = accelerating ? acc : dec;
+        const maxDelta = rampTime === 0 ? Infinity : frs / rampTime * dt;
+        if (enable) {
+            const delta = clamp(intermediate - oldRamp, -maxDelta, maxDelta);
+            if (!(state.currentLimited && accelerating))
+                state.rampFrequency += delta;
+            // A frozen high-frequency demand cannot restart a stalled physical
+            // motor when CLI leaves less locked-rotor torque than the load.
+            // This teaching controller folds frequency back along the configured
+            // ramp toward rated slip above the shaft, without assigning torque.
+            const rotorFrequency = state.omega * motor.poles / (4 * Math.PI);
+            const nominalSlip = Math.max(.2, motor.frequency - motor.speedRPM * motor.poles / 120);
+            if (direction && state.currentLimited && connectedOutputs >= 2
+                && (state.frequency - rotorFrequency) * direction > nominalSlip) {
+                const recover = rotorFrequency + direction * nominalSlip;
+                state.rampFrequency = direction > 0
+                    ? Math.max(recover, state.rampFrequency - maxDelta)
+                    : Math.min(recover, state.rampFrequency + maxDelta);
             }
-            const blockedByLoad = Math.abs(s.omega) < 0.01 && l.torque > 0 && Math.abs(te) <= l.torque;
-            if (i.shaftHeld || blockedByLoad) requestCurrent = Math.max(requestCurrent, lockedCurrent);
-            const available = ratedTorque * Math.sqrt(Math.max(0, aggregateLimit * aggregateLimit - mag * mag)) / (TORQUE_CURRENT_FACTOR * m.current) * flux;
-            s.currentLimited = requestCurrent > aggregateLimit + 0.015;
-            if (connectedOutputs === 2 && requestCurrent > aggregateLimit)
-                te *= aggregateLimit / requestCurrent;
-            te = clamp(te, -available, available);
-            requestCurrent = Math.min(requestCurrent, connectedOutputs === 2 ? aggregateLimit : Math.max(driveLimit, mag));
-            /* Ramp adaptation spends only a small braking power in motor and drive losses. */
-            if (te * s.omega < 0 && te * s.frequency < 0 && this.p('FUn.brA') === 'YES' && !i.brakeModule) {
-                const allowedTorque = BASE_BRAKING_LOSS / Math.max(Math.abs(s.omega), 5);
-                te = clamp(te, -allowedTorque, allowedTorque);
-                const minFollowing = rotorHz - Math.sign(s.omega) * allowedTorque / ratedTorque * actualSlip;
-                if (s.omega > 0)
-                    s.rampFrequency = Math.max(s.rampFrequency, minFollowing);
-                else
-                    s.rampFrequency = Math.min(s.rampFrequency, minFollowing);
-                if (connectedOutputs === 3 && !i.shaftHeld)
-                    requestCurrent = Math.hypot(mag, TORQUE_CURRENT_FACTOR * m.current * te / (ratedTorque * Math.max(flux, 0.05)));
-            }
-            /* Displacement of the fundamental current: the torque-producing part is in
-               phase with the voltage and the magnetizing part lags it by 90 degrees.
-               Teaching approximation from the same split used for the magnitude. */
-            // times synchronous rotation direction, including reverse motoring.
-            const sequence = Math.sign(s.frequency) || this.lastActiveDirection;
-            const active = clamp(TORQUE_CURRENT_FACTOR * m.current * te * sequence / (ratedTorque * Math.max(flux, 0.05)), -requestCurrent, requestCurrent);
-            if (requestCurrent > 0) lag = Math.atan2(Math.sqrt(Math.max(0, requestCurrent * requestCurrent - active * active)), active);
-            if (mag > aggregateLimit * 1.15)
-                this.overcurrentTime += dt;
-            else
-                this.overcurrentTime = 0;
-            if (this.overcurrentTime > 0.08) {
-                this.trip('OCF');
-                te = 0;
-                voltage = 0;
-                requestCurrent = 0;
-            }
-        }
-        else if (dc && connectedOutputs >= 2) {
-            // SdC is the injected conductor current. This teaching topology uses
-            // the first connected leg and equal returns through the others.
-            // LCr and heating use the RMS magnitude across all three conductors.
-            const injectionCurrent = Math.min(this.p('FUn.AdC.SdC'), driveLimit);
-            requestCurrent = injectionCurrent * (connectedOutputs === 3 ? Math.SQRT1_2 : Math.sqrt(2 / 3));
-            voltage = Math.min(i.supplyV, injectionCurrent / m.current * DC_INJECTION_VOLTAGE_SCALE);
-            te = -Math.sign(s.omega) * ratedTorque * (injectionCurrent / m.current) ** 2 * clamp(Math.abs(s.omega) / 5, 0, 1);
-            if (connectedOutputs === 2) te *= 0.5;
-            s.currentLimited = false;
         }
         else {
-            s.currentLimited = false;
+            state.rampFrequency = 0;
+            this.frequencyVelocity = 0;
+            state.frequency = 0;
         }
-        const rotatingSign = Math.abs(s.omega) > 0.01 ? Math.sign(s.omega) : Math.sign(te) || this.lastActiveDirection;
-        const load = l.torque * rotatingSign;
-        let net = te - load - l.friction * s.omega;
-        if (Math.abs(s.omega) < 0.01 && l.torque >= 0 && Math.abs(te) <= l.torque)
-            net = 0;
-        const inertia = Math.max(0.0001, m.inertia + l.inertia);
-        const oldOmega = s.omega;
-        /* Local implicit damping keeps small allowed rotor inertias stable at a 5 ms step. */
-        const electricalSlope = s.running && connectedOutputs >= 2 ? ratedTorque / actualSlip * m.poles / (4 * Math.PI) * flux * flux : 0;
-        s.omega = i.shaftHeld ? 0 : clamp(s.omega + net * dt / (inertia + dt * (l.friction + electricalSlope)), -4000, 4000);
-        // A passive resisting load can stop the shaft, but cannot drive a
-        // reversal. An opposing motor torque above the load can reverse it.
-        if (oldOmega * s.omega < 0 && l.torque >= 0 && (!s.running || Math.abs(te) <= l.torque))
-            s.omega = 0;
-        s.rpm = s.omega * 30 / Math.PI;
-        s.angle = (s.angle + s.omega * dt) % (2 * Math.PI);
-        s.torque = te;
-        s.voltage = voltage;
-        s.currentLag = lag;
-        this.electricalMode = enable && s.running ? 'ac' : dc ? 'dc' : 'off';
-        s.current += (requestCurrent - s.current) * (1 - Math.exp(-dt / 0.03));
-        if (connectedOutputs === 2) s.current = Math.min(s.current, aggregateLimit);
-        if (!enable || connectedOutputs < 2)
-            s.current = 0;
+    }
+    private advancePlant(dt: number, control: OutputControl): void {
+        const state = this.runtimeState;
+        const { voltage, driveLimit } = control;
+        this.plant.advance(dt, { mode: this.electricalMode, frequency: state.frequency,
+            voltage, currentLimit: driveLimit, injectionCurrent: this.p('FUn.AdC.SdC'),
+            running: state.running, fault: state.fault }, this.configuration, state.time - dt);
+        const physical = this.plant, electrical = physical.instantaneous;
+        Object.assign(state, {
+            omega: physical.omega, rpm: physical.omega * 30 / Math.PI, angle: physical.angle,
+            torque: physical.torque, voltage: physical.voltage, current: physical.current,
+            currentLag: physical.currentLag, currentLimited: physical.currentLimited,
+            dcBus: physical.dcLink.voltage, regenerativePower: physical.regenerativePower,
+            statorFluxAlpha: electrical.statorFlux.alpha, statorFluxBeta: electrical.statorFlux.beta,
+            rotorFluxAlpha: electrical.rotorFlux.alpha, rotorFluxBeta: electrical.rotorFlux.beta,
+            magneticEnergy: electrical.magneticEnergy, inputPower: physical.inputPower,
+            motorCopperLoss: physical.windingLoss, busPrecharging: physical.dcLink.precharging,
+        });
+    }
+    private updateElectricalProtections(dt: number, power: boolean, aggregateLimit: number): void {
+        const state = this.runtimeState, inputs = this.configuration.inputs, motor = this.configuration.motor;
+        const physical = this.plant;
+        if (this.electricalMode === 'ac' && state.current > aggregateLimit * 1.15) this.overcurrentTime += dt;
+        else this.overcurrentTime = 0;
+        if (this.overcurrentTime > .08) this.trip('OCF');
+        if (power && !physical.dcLink.precharging && state.dcBus < 230) this.trip('USF');
         const sf = this.p('FUn.SFt.ACt'), configured = this.p('FUn.SFt.SFr');
-        s.switchingFrequency = sf === 'HF' && s.driveThermal > 90 ? 4 : configured === 2 && Math.abs(s.frequency) > 100 ? 4 : configured;
+        state.switchingFrequency = sf === 'HF' && state.driveThermal > 90 ? 4
+            : configured === 2 && Math.abs(state.frequency) > CONTROL_MODEL.twoKHzThresholdHz ? 4 : configured;
         if (sf === 'LFr')
-            s.switchingFrequency *= 1 + 0.12 * Math.sin(s.time * 37) + 0.05 * Math.sin(s.time * 83);
-        const switchingHeating = 1 + 0.025 * (s.switchingFrequency - 4);
-        const ratio = s.current / Math.max(0.01, this.p('ItH'));
-        s.motorThermal += (Math.min(10000, 100 * ratio * ratio) - s.motorThermal) * (1 - Math.exp(-dt / MOTOR_THERMAL_TIME));
-        s.actualMotorThermal += (100 * (s.current / m.current) ** 2 - s.actualMotorThermal) * (1 - Math.exp(-dt / MOTOR_THERMAL_TIME));
-        const ambient = Math.max(0, (i.ambient - 25) * 1.5), cooling = 0.15 + 0.85 * i.ventilation;
-        const driveTarget = power ? ambient + 100 * (s.current / DRIVE_CURRENT) ** 2 * switchingHeating / cooling : 0;
-        s.driveThermal += (driveTarget - s.driveThermal) * (1 - Math.exp(-dt / DRIVE_THERMAL_TIME));
-        // A stationary DC field dissipates braking energy in the motor, not the
-        // DC link. AC regeneration requires negative synchronous-field power;
-        // opposite rotor/field directions instead describe plugging.
-        s.regenerativePower = this.electricalMode === 'ac' && te * s.frequency < 0 ? Math.max(0, -te * s.omega) : 0;
-        const base = power ? i.supplyV * Math.SQRT2 : 0;
-        if (power) {
-            if (s.dcBus < base)
-                s.dcBus += (base - s.dcBus) * (1 - Math.exp(-dt / 0.025));
-            const regen = Math.max(0, s.regenerativePower - BASE_BRAKING_LOSS);
-            const dissipation = i.brakeModule ? clamp((s.dcBus - 350) * 20, 0, 1800) : Math.max(0, (s.dcBus - base) * 1.2);
-            const v2 = s.dcBus * s.dcBus + 2 * (regen - dissipation) * dt / BUS_CAPACITANCE;
-            s.dcBus = Math.max(base, Math.sqrt(Math.max(0, v2)));
-        }
-        else if (this.controlledPowerStop && enable) {
-            const electricalLoss = 20 + 12 * s.current * s.current;
-            s.dcBus = Math.sqrt(Math.max(0, s.dcBus * s.dcBus + 2 * (s.regenerativePower - electricalLoss) * dt / BUS_CAPACITANCE));
-            if (!s.running)
-                this.controlledPowerStop = false;
-        }
-        else
-            s.dcBus *= Math.exp(-dt / 0.15);
-        if (s.dcBus > 415 && s.regenerativePower > BASE_BRAKING_LOSS) {
+            state.switchingFrequency *= 1 + 0.12 * Math.sin(state.time * 37) + 0.05 * Math.sin(state.time * 83);
+        const switchingHeating = 1 + 0.025 * (state.switchingFrequency - 4);
+        const ratio = state.current / Math.max(0.01, this.p('ItH'));
+        state.motorThermal += (Math.min(10000, 100 * ratio * ratio) - state.motorThermal)
+            * (1 - Math.exp(-dt / THERMAL_MODEL.motorSeconds));
+        state.actualMotorThermal += (100 * (state.current / motor.current) ** 2 - state.actualMotorThermal)
+            * (1 - Math.exp(-dt / THERMAL_MODEL.motorSeconds));
+        const ambient = Math.max(0, (inputs.ambient - 25) * 1.5), cooling = 0.15 + 0.85 * inputs.ventilation;
+        const driveTarget = power ? ambient + 100 * (state.current / DRIVE_CURRENT) ** 2 * switchingHeating / cooling : 0;
+        state.driveThermal += (driveTarget - state.driveThermal) * (1 - Math.exp(-dt / THERMAL_MODEL.driveSeconds));
+        if (state.dcBus > 415) {
             this.brakingOvervoltageTime += dt;
-            if (this.brakingOvervoltageTime > 0.01)
-                this.trip('ObF');
-        }
-        else
-            this.brakingOvervoltageTime = 0;
-        if (s.motorThermal > 118)
+            if (this.brakingOvervoltageTime > .01) this.trip('ObF');
+        } else this.brakingOvervoltageTime = 0;
+        if (state.motorThermal > THERMAL_MODEL.tripPercent)
             this.trip('OLF');
-        if (s.driveThermal > 118)
+        if (state.driveThermal > THERMAL_MODEL.tripPercent)
             this.trip('OHF');
-        const reachedBand = s.piActive ? this.p('FUn.AP1') : 0.1;
-        const difference = Math.abs(s.frequency - (s.reference + slipComp));
-        if (!s.running)
-            s.referenceReached = false;
-        else if (difference <= Math.max(0, reachedBand - (s.piActive ? 0.2 : 0)))
-            s.referenceReached = true;
+    }
+    private updateReferenceReached(slipCompensation: number): void {
+        const state = this.runtimeState;
+        const reachedBand = state.piActive ? this.p('FUn.AP1') : 0.1;
+        const difference = Math.abs(state.frequency - (state.reference + slipCompensation));
+        if (!state.running)
+            state.referenceReached = false;
+        else if (difference <= Math.max(0, reachedBand - (state.piActive ? 0.2 : 0)))
+            state.referenceReached = true;
         else if (difference > reachedBand)
-            s.referenceReached = false;
+            state.referenceReached = false;
+    }
+    private updateLoadProtections(dt: number): void {
+        const state = this.runtimeState, motor = this.configuration.motor;
         /* Compare with the frequency demand including the modeled slip compensation. */
-        if (s.running && s.referenceReached && !s.fault) {
+        if (state.running && state.referenceReached && !state.fault) {
             const loc = DRIVE_CURRENT * this.p('FUn.LOC') / 100, lul = DRIVE_CURRENT * this.p('FUn.LUL') / 100;
-            if (s.current < loc - 0.1 * DRIVE_CURRENT)
+            if (state.current < loc - 0.1 * DRIVE_CURRENT)
                 this.overloadTime = 0;
-            else if (s.current > loc || this.overloadTime > 0)
+            else if (state.current > loc || this.overloadTime > 0)
                 this.overloadTime += dt;
-            if (s.current > lul + 0.1 * DRIVE_CURRENT)
+            if (state.current > lul + 0.1 * DRIVE_CURRENT)
                 this.underloadTime = 0;
-            else if (s.current < lul || this.underloadTime > 0)
+            else if (state.current < lul || this.underloadTime > 0)
                 this.underloadTime += dt;
             if (this.p('FUn.tOL') > 0 && this.overloadTime >= this.p('FUn.tOL'))
                 this.trip('OLC');
             if (this.p('FUn.tUL') > 0 && this.underloadTime >= this.p('FUn.tUL'))
                 this.trip('ULF');
         }
-        else if (!s.running) {
+        else if (!state.running) {
             this.overloadTime = 0;
             this.underloadTime = 0;
         }
-        if (s.running && Math.abs(s.rpm) > Math.max(1, s.activeHighSpeed) * 120 / m.poles * 1.2)
+        if (state.running && Math.abs(state.rpm) > Math.max(1, state.activeHighSpeed) * 120 / motor.poles * 1.2)
             this.overspeedTime += dt;
         else
             this.overspeedTime = 0;
         if (this.overspeedTime > 0.3)
             this.trip('SOF');
-        this.wasRunning = s.running && !s.fault;
-        s.status = !power ? '' : s.fault ? s.fault : nst ? 'nSt' : dc ? 'dcb' : s.running ? 'run' : 'rdY';
-        s.relay = power && (!s.fault || this.p('FUn.Atr') === 'YES' && AUTO_FAULTS.has(s.fault) && !this.autoAborted);
+    }
+    private publishReadings(power: boolean, nst: boolean, dc: boolean): void {
+        const state = this.runtimeState, inputs = this.configuration.inputs;
+        this.wasRunning = state.running && !state.fault;
+        state.status = !power ? '' : state.fault ? state.fault : nst ? 'nSt' : dc ? 'dcb' : state.running ? 'run' : 'rdY';
+        state.relay = power && (!state.fault || this.p('FUn.Atr') === 'YES' && AUTO_FAULTS.has(state.fault) && !this.autoAborted);
         this.outputs();
-        Object.assign(s, this.monitors());
-        s.HSU = s.activeHighSpeed;
-        this.previousInputs = copyInputs(i);
+        Object.assign(state, this.monitors());
+        state.HSU = state.activeHighSpeed;
+        this.previousInputs = copyInputs(inputs);
         this.previousPower = power;
     }
     private outputs(): void {
@@ -756,20 +802,22 @@ export class VFDDrive {
         const s = this.runtimeState;
         // FrH is the selected demand, also visible while stopped (tech p.119).
         // s.reference is the signed run/stop target consumed by the ramps.
-        return { FrH: this.referenceDemand, rFr: Math.abs(s.frequency), LCr: s.current, ULn: this.configuration.inputs.powered ? this.configuration.inputs.supplyV : 0, tHr: s.motorThermal, tHd: s.driveThermal, rPF: s.piFeedback };
+        return { FrH: this.referenceDemand, rFr: Math.abs(s.frequency), LCr: s.current,
+            ULn: this.configuration.inputs.powered ? this.configuration.inputs.supplyV : 0,
+            tHr: s.motorThermal, tHd: s.driveThermal, rPF: s.piFeedback };
     }
     private physicalReadings(): PhysicalReadings {
-        const s = this.runtimeState, i = this.configuration.inputs, l = this.configuration.mechanical;
+        const s = this.runtimeState, i = this.configuration.inputs;
         const { U, V, W } = conductorMagnitudes(this.electricalMode, s.current, i.outputConnections);
         const average = (U + V + W) / 3;
-        const currentImbalance = average > 0 ? 100 * Math.max(Math.abs(U - average), Math.abs(V - average), Math.abs(W - average)) / average : 0;
-        const sign = Math.abs(s.omega) > 0.01 ? Math.sign(s.omega) : Math.sign(s.torque) || this.lastActiveDirection;
+        const currentImbalance = average > 0
+            ? 100 * Math.max(Math.abs(U - average), Math.abs(V - average), Math.abs(W - average)) / average : 0;
         return {
             phaseCurrentU: U,
             phaseCurrentV: V,
             phaseCurrentW: W,
             currentImbalance,
-            shaftReactionTorque: i.shaftHeld ? l.torque * sign + l.friction * s.omega - s.torque : 0
+            shaftReactionTorque: i.shaftHeld ? this.plant.shaftReactionTorque : 0
         };
     }
     private electricalOutput(physical: PhysicalReadings): ElectricalOutput {
@@ -825,6 +873,8 @@ function stoppedState(config: ReadonlyEngineConfiguration): RuntimeDriveState {
         switchingFrequency: config.parameters['FUn.SFt.SFr'],
         currentLag: Math.PI / 2,
         regenerativePower: 0,
+        statorFluxAlpha: 0, statorFluxBeta: 0, rotorFluxAlpha: 0, rotorFluxBeta: 0,
+        magneticEnergy: 0, inputPower: 0, motorCopperLoss: 0, busPrecharging: true,
         armed: false,
         FrH: 0,
         rFr: 0,

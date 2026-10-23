@@ -17,14 +17,18 @@ into a temporary fixture managed by Playwright.
 
 | Suite | Coverage |
 | --- | --- |
-| `unit` | Motor dynamics, configuration validation and ownership, waveform equations, slider scales, panel and diagnosis behavior, catalog and build contracts |
+| `unit` | Flux and shaft dynamics, exact stopped/open remanent decay, energy balances, joint nominal current/power-factor/torque fit, passive circuit and power-balance residuals, controller recovery, fixed-step/frame-budget behavior, documentation coverage, configuration validation and ownership, waveform equations, slider scales, panel and diagnosis behavior, catalog and build contracts |
 | `app.spec.mjs` | Native controls, parameter routes and editing, imports and downloads, study guide, layout matrix and WebGL fallback |
-| `scope.spec.mjs` | Scope traces, zoom and voltage references, integrated sound and fullscreen controls, guide explanations |
+| `scope.spec.mjs` | Physical transient recording, trailing-window RMS trends, single-shot capture, continuous switching-current zoom and voltage references, integrated sound and fullscreen controls, guide explanations |
+| `motor.spec.mjs` | Legacy circuit estimation, manual circuit round trip, fit diagnostics and stopped-only edits |
+| `documentation.spec.mjs` | Offline application/documentation/limitations navigation, generated facts, equations, diagram and phone readability |
 | `output.spec.mjs` | Reverse motoring and disconnected-conductor DC injection in both application pages |
 | `mobile.spec.mjs` | Seven landscape sizes, study notes, rotation, touch controls, toolbar-height fixtures, native pinch, pan and reverse pinch |
 | `stage-audit.spec.mjs` | Controlled conductor, text, clipping and overlap cases for the geometry auditor |
 | `renderer.spec.mjs` | Rendered geometry, rotation, pixel density, resizing, context loss/restoration and resource disposal |
 | `ui-audio.spec.mjs` | Keyboard repeat, audio preference and visibility, delayed/rejected resumes, disposal and fullscreen denial |
+
+Circuit checks compare the estimated circuit with its stated nominal targets and verify input, converted and resistive power balance. No-load, locked-rotor and maximum-torque references are diagnostics, not constraints on the fit. The previous reduced torque curve is no longer a physical calibration target. Scope trend tests use known signed samples to check causal RMS/mean windows without changing stored captures or the plant.
 
 Install Playwright's Chromium and Firefox browsers before running the browser
 suite. On systems with packaged browser builds, `BROWSER_PATH` and `FIREFOX_PATH`

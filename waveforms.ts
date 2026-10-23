@@ -6,11 +6,12 @@
 // carrier period, with min-max zero-sequence injection (equivalent to space-vector
 // modulation), which reaches a line voltage of Vdc / sqrt(2). Teaching model: the
 // ATV11's exact modulation strategy is not documented in the manufacturer's manuals.
-// Currents are the fundamental only; switching ripple depends on the motor's leakage
-// inductance, which the simulator does not model.
+// The 2 ms detail adds an independent leakage-current solution around the
+// fundamental; its result never enters the averaged motor integration.
 
 import { PHASES } from './engine-types';
 import type { ElectricalOutput, Phase } from './engine-types';
+import { invariant } from './invariant';
 export { PHASES } from './engine-types';
 export type { Phase } from './engine-types';
 
@@ -69,11 +70,18 @@ export type VoltageKind = 'line' | 'phase' | 'pole';
 export function legWeights(kind: VoltageKind, connected: Readonly<Record<Phase, boolean>>): Record<Phase, number> | null {
   if (kind === 'line') return { U: 1, V: -1, W: 0 };
   if (kind === 'pole') return { U: 1, V: 0, W: 0 };
-  if (!connected.U) return null;
-  if (connected.V && connected.W) return { U: 2 / 3, V: -1 / 3, W: -1 / 3 };
-  if (connected.V) return { U: 1 / 2, V: -1 / 2, W: 0 };
-  if (connected.W) return { U: 1 / 2, V: 0, W: -1 / 2 };
-  return null;
+  return windingWeights('U', connected);
+}
+
+/** Floating-star winding voltage; disconnected conductors carry no winding current. */
+function windingWeights(phase: Phase, connected: Readonly<Record<Phase, boolean>>): Record<Phase, number> | null {
+  const count = PHASES.filter(item => connected[item]).length;
+  if (!connected[phase] || count < 2) return null;
+  return {
+    U: (phase === 'U' ? 1 : 0) - (connected.U ? 1 / count : 0),
+    V: (phase === 'V' ? 1 : 0) - (connected.V ? 1 / count : 0),
+    W: (phase === 'W' ? 1 : 0) - (connected.W ? 1 / count : 0),
+  };
 }
 
 /**
@@ -82,8 +90,12 @@ export function legWeights(kind: VoltageKind, connected: Readonly<Record<Phase, 
  * interval of that duty.
  */
 export function outputVoltage(input: ScopeInput, kind: VoltageKind, start: number, length: number): Steps | null {
-  const end = start + length, weights = legWeights(kind, input.connected);
-  if (!weights) return null;
+  const weights = legWeights(kind, input.connected);
+  return weights ? switchingVoltage(input, weights, start, length) : null;
+}
+
+function switchingVoltage(input: ScopeInput, weights: Record<Phase, number>, start: number, length: number): Steps {
+  const end = start + length;
   if (input.mode === 'off' || input.dcBus <= 0 || input.switchingKHz <= 0) return { edges: [start, end], values: [0] };
   const period = 1 / (1000 * input.switchingKHz);
   const events: Array<[number, number]> = [];
@@ -189,4 +201,135 @@ export function niceLimit(value: number, minimum: number): number {
   const decade = 10 ** Math.floor(Math.log10(target));
   for (const step of [1, 2, 5, 10]) if (step * decade >= target) return step * decade;
   return 10 * decade;
+}
+
+
+export interface SwitchedCurrentInput {
+  readonly output: ScopeInput;
+  readonly circuit: {
+    /** Effective per-phase stator resistance, ohm. */
+    readonly statorResistance: number;
+    /** Ls - Lm^2/Lr, referred to the stator, H. */
+    readonly leakageInductance: number;
+  };
+}
+export interface CurrentTrace {
+  readonly times: number[];
+  readonly values: Record<Phase, number[]>;
+}
+interface RipplePeriod {
+  readonly steps: Steps;
+  readonly mean: number;
+  readonly initial: number;
+}
+
+/** Exact R-L evolution over a constant residual voltage, avoiding small-step loss. */
+function leakageStep(current: number, voltage: number, time: number, resistance: number, inductance: number): number {
+  if (resistance === 0) return current + voltage * time / inductance;
+  const decay = -Math.expm1(-resistance * time / inductance);
+  return current * (1 - decay) + voltage / resistance * decay;
+}
+
+function ripplePeriod(input: SwitchedCurrentInput, phase: Phase, start: number, period: number, incoming?: number): RipplePeriod | null {
+  const weights = windingWeights(phase, input.output.connected);
+  if (!weights) return null;
+  const steps = switchingVoltage(input.output, weights, start, period);
+  let mean = 0;
+  for (let index = 0; index < steps.values.length; index++)
+    mean += steps.values[index]! * (steps.edges[index + 1]! - steps.edges[index]!);
+  mean /= period;
+  if (incoming !== undefined) return { steps, mean, initial: incoming };
+  const { statorResistance: resistance, leakageInductance: inductance } = input.circuit;
+  let current = 0, area = 0, response = 0;
+  for (let index = 0; index < steps.values.length; index++) {
+    const time = steps.edges[index + 1]! - steps.edges[index]!;
+    const voltage = steps.values[index]! - mean;
+    if (resistance === 0) {
+      const next = leakageStep(current, voltage, time, 0, inductance);
+      area += (current + next) * time / 2;
+      current = next;
+    } else {
+      const rate = resistance / inductance, z = -rate * time;
+      // Remove the zero-mean forcing term analytically. The remaining response
+      // is O(Rs), avoiding cancellation when Rs Ts / Lsigma approaches zero.
+      const excess = Math.abs(z) < 1e-4 ? z * (.5 + z * (1 / 6 + z * (1 / 24 + z / 120)))
+        : Math.expm1(z) / z - 1;
+      const remaining = Math.max(0, start + period - steps.edges[index + 1]!);
+      const weight = Math.expm1(-rate * remaining) * (1 + excess) + excess;
+      response += voltage * time / inductance * weight;
+    }
+  }
+  const initial = resistance === 0 ? -area / period
+    : response / -Math.expm1(-resistance * period / inductance);
+  return { steps, mean, initial };
+}
+function rippleAt(input: SwitchedCurrentInput, plan: RipplePeriod, time: number): number {
+  const { statorResistance, leakageInductance } = input.circuit;
+  let current = plan.initial;
+  for (let index = 0; index < plan.steps.values.length; index++) {
+    const from = plan.steps.edges[index]!, to = Math.min(time, plan.steps.edges[index + 1]!);
+    if (to > from) current = leakageStep(current, plan.steps.values[index]! - plan.mean, to - from, statorResistance, leakageInductance);
+    if (time <= plan.steps.edges[index + 1]!) break;
+  }
+  return current;
+}
+
+/**
+ * Original switching-detail approximation derived by subtracting the carrier mean
+ * from v = Rs i + d(psi)/dt. Rotor flux and the fundamental are held at the snapshot.
+ * Lsigma d(delta i)/dt + Rs delta i = vPWM - mean(vPWM).
+ * A bounded leading integration initializes the continuous R-L ripple. Each
+ * carrier's voltage residual has zero mean; current means approach the averaged
+ * baseline without resetting current at carrier boundaries. It changes neither
+ * the motor state nor its RMS reading. This excludes cables, dead time and reflections.
+ * Machine equation/parameter provenance:
+ * https://www.mathworks.com/help/mcb/ref/inductionmotor.html
+ */
+export function switchedCurrents(input: SwitchedCurrentInput, start: number, length: number): CurrentTrace {
+  const { output, circuit } = input;
+  invariant(Number.isFinite(start) && Number.isFinite(length) && length > 0, 'la ventana de conmutación debe ser finita y positiva');
+  invariant(Number.isFinite(circuit.statorResistance) && circuit.statorResistance >= 0,
+    'la resistencia del estator debe ser finita y no negativa');
+  invariant(Number.isFinite(circuit.leakageInductance) && circuit.leakageInductance > 0,
+    'la inductancia de dispersión debe ser positiva');
+  const end = start + length;
+  const values: Record<Phase, number[]> = { U: [], V: [], W: [] };
+  if (output.mode === 'off' || output.switchingKHz <= 0 || output.dcBus <= 0)
+    return { times: [start, end], values: { U: [0, 0], V: [0, 0], W: [0, 0] } };
+  const period = 1 / (1000 * output.switchingKHz);
+  const plans = new Map<number, Record<Phase, RipplePeriod | null>>();
+  const times = new Set<number>([start, end]);
+  const first = Math.floor(start / period);
+  // Start with a local periodic approximation, then carry current through the
+  // leading PWM sequence. Target eight R-L time constants within a fixed budget;
+  // initial-state accuracy is limited when L/R exceeds the warmup horizon.
+  const settling = circuit.statorResistance > 0 ? 8 * circuit.leakageInductance / circuit.statorResistance : 0;
+  const leading = Math.min(512, Math.max(2, Math.ceil(settling / period)));
+  const incoming: Partial<Record<Phase, number>> = {};
+  for (let index = first - leading; index * period < end; index++) {
+    const from = index * period;
+    const row = {
+      U: ripplePeriod(input, 'U', from, period, incoming.U),
+      V: ripplePeriod(input, 'V', from, period, incoming.V),
+      W: ripplePeriod(input, 'W', from, period, incoming.W),
+    };
+    for (const phase of PHASES) {
+      const plan = row[phase];
+      if (plan) incoming[phase] = rippleAt(input, plan, plan.steps.edges.at(-1)!);
+    }
+    if (index >= first) plans.set(index, row);
+    for (const phase of PHASES) for (const edge of row[phase]?.steps.edges ?? [])
+      if (edge > start && edge < end) times.add(edge);
+  }
+  // Exact switching corners retain ripple extrema; extra points resolve the sine.
+  for (let index = 1; index < 600; index++) times.add(start + length * index / 600);
+  const ordered = [...times].sort((a, b) => a - b);
+  for (const time of ordered) {
+    // The last point belongs to the preceding interval, not a missing next plan.
+    const index = Math.min(Math.floor(time / period), Math.ceil(end / period) - 1);
+    const row = plans.get(index) ?? plans.get(index + 1)!;
+    const fundamental = phaseCurrents(output, time);
+    for (const phase of PHASES) values[phase].push(row[phase] ? fundamental[phase] + rippleAt(input, row[phase], time) : 0);
+  }
+  return { times: ordered, values };
 }

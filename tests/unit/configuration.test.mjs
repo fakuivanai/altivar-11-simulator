@@ -227,3 +227,64 @@ test('Configuration actions cannot remain pending in an imported file', () => {
   c.parameters['SUP.COd'] = 999;
   assert(cfg.parseConfiguration(JSON.stringify(c)).ok);
 });
+
+test('Legacy version 1 files normalize and export an explicit estimated motor circuit', () => {
+  const legacy = cfg.initialConfig();
+  delete legacy.motorElectrical;
+  const result = cfg.parseConfiguration(JSON.stringify(legacy));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value.motorElectrical, { mode: 'estimated' });
+  const exported = JSON.parse(JSON.stringify(result.value));
+  assert.deepEqual(exported.motorElectrical, { mode: 'estimated' });
+  assert.deepEqual(cfg.parseConfiguration(JSON.stringify(exported)), result);
+  assert.equal(Object.hasOwn(legacy, 'motorElectrical'), false);
+});
+
+test('Manual motor circuits round trip with independently owned parameters', () => {
+  const candidate = cfg.initialConfig();
+  candidate.motorElectrical = {
+    mode: 'manual',
+    parameters: { Rs: 3.2, Rr: 2.7, Lls: .04, Llr: .035, Lm: .51 }
+  };
+  const original = structuredClone(candidate);
+  const result = cfg.validateConfig(candidate);
+  assert.equal(result.ok, true);
+  candidate.motorElectrical.parameters.Rs = 8;
+  assert.deepEqual(result.value, original);
+  const restored = cfg.parseConfiguration(JSON.stringify(result.value));
+  assert.equal(restored.ok, true);
+  assert.deepEqual(restored.value, original);
+  restored.value.motorElectrical.parameters.Lm = .2;
+  assert.equal(result.value.motorElectrical.parameters.Lm, .51);
+});
+
+test('Malformed motor circuits reject the whole candidate without changing existing values', () => {
+  const previous = cfg.initialConfig();
+  const snapshot = structuredClone(previous);
+  const manual = { mode: 'manual', parameters: { Rs: 3.2, Rr: 2.7, Lls: .04, Llr: .035, Lm: .51 } };
+  const invalid = [
+    null, [], { mode: 'unknown' }, { mode: 'estimated', parameters: manual.parameters },
+    { mode: 'manual' }, { ...manual, extra: true },
+    ...[
+      parameters => { delete parameters.Rr; },
+      parameters => { parameters.extra = 1; },
+      parameters => { parameters.Rs = '3.2'; },
+      parameters => { parameters.Rs = NaN; },
+      parameters => { parameters.Rr = 0; },
+      parameters => { parameters.Lls = 11; },
+      parameters => { parameters.Llr = -.1; },
+      parameters => { parameters.Lm = null; },
+    ].map(mutate => {
+      const circuit = structuredClone(manual);
+      mutate(circuit.parameters);
+      return circuit;
+    })
+  ];
+  for (const motorElectrical of invalid) {
+    const candidate = structuredClone(previous);
+    candidate.parameters.ACC = 17;
+    candidate.motorElectrical = motorElectrical;
+    assert.equal(cfg.validateConfig(candidate).ok, false, JSON.stringify(motorElectrical));
+    assert.deepEqual(previous, snapshot);
+  }
+});

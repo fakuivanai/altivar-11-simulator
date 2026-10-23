@@ -9,7 +9,7 @@ function driveInMode(mode) {
   if (mode === 'ac') drive.setInputs({
     LI1: true
   });
-  if (mode !== 'off') drive.advance(.2);
+  if (mode !== 'off') drive.advance(.4);
   return drive;
 }
 test('Configuration is deeply frozen and keeps its identity between updates', () => {

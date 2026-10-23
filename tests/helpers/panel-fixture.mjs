@@ -7,6 +7,8 @@ import { initialConfig, validateConfig, parseConfiguration } from '../../configu
 export function createPanelFixture() {
   const config = initialConfig();
   const drive = new VFDDrive(config);
+  // Panel behavior starts after physical precharge, which engine tests cover.
+  if (config.inputs.powered) drive.advance(.3);
   const state = {
     config,
     ...initialPanelState(config),
@@ -18,6 +20,7 @@ export function createPanelFixture() {
     drive.setConfig(next, reset ? {
       reset: true
     } : {});
+    if (reset && next.inputs.powered) drive.advance(.3);
     if (inhibit) drive.inhibitCommands();
     state.config = next;
   };

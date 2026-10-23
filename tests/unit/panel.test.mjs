@@ -354,7 +354,7 @@ test('manufacturer PDF page mappings and model-bound explanations', () => {
   });
   assert.match(PARAMETERS['FUn.AP1'].text, /PI activo/);
   assert.match(PARAMETERS['FUn.PI.PAU'].text, /SP4/);
-  assert.match(FAULTS.OCF.simulator, /demanda magnetizante/);
+  assert.match(FAULTS.OCF.simulator, /En alterna, la corriente calculada supera 1,15 veces el límite/);
   assert.equal(FAULTS.SCF.logicReset, false);
   assert.equal(FAULTS.SOF.logicReset, true);
   assert.equal(FAULTS.SOF.autoReset, false);
