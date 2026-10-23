@@ -1,0 +1,72 @@
+# Pages deployment follows https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages
+name: Verify
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium firefox
+      - name: Audio output for Firefox
+        run: |
+          sudo apt-get install --no-install-recommends -y pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=tests
+          pactl set-default-sink tests
+      - run: xvfb-run -a pnpm verify
+      - name: Archive tagged sources
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir classroom
+          cp dist/*.html classroom/
+          git archive --format=zip --prefix=sources/ --output=classroom/sources.zip HEAD
+      - name: Classroom files
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: classroom-${{ github.ref_name }}
+          path: classroom/
+          if-no-files-found: error
+      - name: Pages files
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
