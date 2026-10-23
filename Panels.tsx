@@ -11,6 +11,8 @@ import type { NumericKey } from './simulator';
 import { frictionScale, inertiaScale, percentScale, ratedSpeed, ratedTorque, startTime, torqueScale } from './scales';
 import type { Scale } from './scales';
 import { Scope } from './Scope';
+import { circuitParameters, MOTOR_CIRCUIT_RANGES } from './motor-circuit';
+import type { MotorCircuitParameters } from './motor-circuit';
 import { Section, SliderLabel, Tabs, Ticks, place, useSimulator } from './ui';
 
 /** A large reading with its caption. */
@@ -73,6 +75,7 @@ function NumberField<S extends 'motor' | 'inputs'>(props: {
   return (
     <label>{props.label}
       <input type="number" min={props.min} max={props.max} step={props.step} value={value()}
+        disabled={props.section === 'motor' && !sim.motorCanChange()}
         onChange={event => {
           if (!sim.commitNumber(props.section, props.field, event.currentTarget.valueAsNumber)) event.currentTarget.value = String(value());
         }} />
@@ -100,6 +103,11 @@ const NAMEPLATE: ReadonlyArray<[string, NumericKey<Motor>, number]> = [
   ['Velocidad rpm', 'speedRPM', 1], ['Cos φ', 'cosPhi', .01],
 ];
 
+const CIRCUIT_FIELDS: ReadonlyArray<[keyof MotorCircuitParameters, string, number]> = [
+  ['Rs', 'Resistencia del estator, ohm', .01], ['Rr', 'Resistencia del rotor referida, ohm', .01],
+  ['Lls', 'Dispersión del estator, H', .0001], ['Llr', 'Dispersión del rotor referida, H', .0001],
+  ['Lm', 'Inductancia de magnetización, H', .001],
+];
 function Nameplate(): JSX.Element {
   const sim = useSimulator();
   const poles = () => sim.state.config.motor.poles;
@@ -109,14 +117,47 @@ function Nameplate(): JSX.Element {
         <For each={NAMEPLATE}>{([label, field, step]) =>
           <NumberField section="motor" field={field} label={label} min={MOTOR_RANGES[field][0]} max={MOTOR_RANGES[field][1]} step={step} />}</For>
         <label>Polos
-          <select id="motor-poles" value={poles()}
+          <select id="motor-poles" value={poles()} disabled={!sim.motorCanChange()}
             onChange={event => { if (!sim.commitExternal('motor', 'poles', Number(event.currentTarget.value))) event.currentTarget.value = String(poles()); }}>
             <For each={[2, 4, 6, 8, 10, 12]}>{count => <option value={count}>{count}</option>}</For>
           </select>
         </label>
         <NumberField section="motor" field="inertia" label={<>Inercia, kg m<sup>2</sup></>} min={MOTOR_RANGES.inertia[0]} max={MOTOR_RANGES.inertia[1]} step={0.0001} />
       </div>
-      <p class="tab-note">El variador debe estar detenido para cambiar el motor.</p>
+      <p class="tab-note">Desactive la salida y espere que se detenga el eje para cambiar el motor.</p>
+      <p id="motor-circuit-mode">Circuito equivalente por fase en estrella: {sim.state.config.motorElectrical.mode === 'estimated' ? 'estimado desde la placa' : 'valores manuales'}.</p>
+      <div class="fields">
+        <For each={CIRCUIT_FIELDS}>{([key, label, step]) =>
+          <label>{label}<input id={'motor-' + key} type="number" step={step} disabled={!sim.motorCanChange()}
+            min={MOTOR_CIRCUIT_RANGES[key][0]} max={MOTOR_CIRCUIT_RANGES[key][1]}
+            value={Number(circuitParameters(sim.motorCircuit())[key].toPrecision(7))}
+            onChange={event => {
+              const next = circuitParameters(sim.motorCircuit());
+              next[key] = event.currentTarget.valueAsNumber;
+              if (!sim.setMotorElectrical(next)) event.currentTarget.value = String(circuitParameters(sim.motorCircuit())[key]);
+            }} /></label>}</For>
+      </div>
+      <button id="motor-estimate" disabled={!sim.motorCanChange()} onClick={() => sim.setMotorElectrical(null)}>Volver a estimar</button>
+      <Show when={sim.state.config.motorElectrical.mode === 'estimated'}>
+        <table id="motor-fit" style={{ width: '100%', 'font-size': '14px', 'font-variant-numeric': 'tabular-nums', 'text-align': 'right' }}>
+          <caption>Diagnóstico del circuito estimado</caption>
+          <thead><tr><th scope="col"></th><th scope="col">Referencia</th><th scope="col">Resultado</th><th scope="col">Diferencia</th></tr></thead>
+          <tbody><For each={[
+            ['ratedCurrent', 'Corriente nominal, A', 2], ['powerFactor', 'Cos φ nominal', 3],
+            ['lockedCurrent', 'Corriente a rotor bloqueado, A', 2],
+          ] as const}>{([key, label, digits]) => <tr>
+            <th scope="row" style={{ 'text-align': 'left', 'font-weight': 'normal' }}>{label}</th>
+            <td>{sim.motorEstimate().fits[key].target.toFixed(digits)}</td>
+            <td>{sim.motorEstimate().fits[key].achieved.toFixed(digits)}</td>
+            <td>{(100 * sim.motorEstimate().fits[key].relativeError).toFixed(1)} %</td>
+          </tr>}</For></tbody>
+        </table>
+        <p id="motor-fit-note" class="tab-note">La referencia de rotor bloqueado supone 6 veces la corriente nominal. La estimación prioriza el par nominal, la corriente en vacío y el deslizamiento de par máximo. Las diferencias de esta tabla son residuos de la estimación, no datos de placa.</p>
+        <Show when={sim.motorEstimate().warnings.length > 0}>
+          <p id="motor-fit-warning" class="tab-note">El circuito estimado no reproduce todos los valores de referencia. Revise los resultados antes de usarlo como representación de un motor real.</p>
+        </Show>
+      </Show>
+      <p class="tab-note">Los valores estimados no sustituyen un ensayo del motor. Cambiar la inercia o la fricción de la carga durante la marcha conserva la velocidad.</p>
     </Section>
   );
 }

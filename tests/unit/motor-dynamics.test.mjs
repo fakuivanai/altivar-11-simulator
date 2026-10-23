@@ -77,6 +77,9 @@ test('Rated forward and reverse motoring retain the same power and opposite torq
   relative(reverse.currentRms, forward.currentRms, 1e-10);
   relative(reverse.inputPower, forward.inputPower, 1e-10);
   assert.ok(forward.inputPower > forward.torque * ratedOmega);
+  const apparent = Math.sqrt(3) * plate.voltage * forward.currentRms;
+  relative(Math.hypot(forward.inputPower, forward.reactivePower), apparent, .0002, 'P/Q apparent power');
+  relative(reverse.reactivePower, -forward.reactivePower, 1e-10, 'reverse reactive convention');
 });
 
 test('Generating exports stator electrical power while plugging imports it', () => {

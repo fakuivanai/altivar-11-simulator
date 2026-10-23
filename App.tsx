@@ -1,6 +1,6 @@
 // Original classroom UI. The projection page shows the fixed stage scaled to the
 // window; the learning page (html data-mode="guide") adds the study panel.
-import { onCleanup, onMount } from 'solid-js';
+import { Show, onCleanup, onMount } from 'solid-js';
 import type { JSX } from 'solid-js';
 import { render } from 'solid-js/web';
 import { Bench } from './Bench';
@@ -19,10 +19,10 @@ function Header(): JSX.Element {
   return (
     <header class="topbar">
       <h1>Variador de frecuencia</h1><span class="model">ATV11HU09M2E, 0,37 kW, 230 V, 2,1 A</span>
-      <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}</div>
+      <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}<Show when={sim.state.simulationLag > .1}> Simulación atrasada {sim.state.simulationLag.toFixed(1)} s.</Show></div>
       <SoundToggle />
       <FullscreenButton />
-      <a href={manualUrl('user')} target="_blank" rel="noopener" title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
+      <a id="manufacturer-manual" href={manualUrl('user')} target="_blank" rel="noopener" title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
     </header>
   );
 }

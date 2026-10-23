@@ -3,6 +3,9 @@
 import { batch, createMemo, createSignal, onCleanup } from 'solid-js';
 import { createMutable, unwrap } from 'solid-js/store';
 import VFDDrive from './engine';
+import { estimateMotorCircuit, makeMotorCircuit } from './motor-circuit';
+import type { MotorCircuitParameters } from './motor-circuit';
+import { createScopeHistory } from './scope-history';
 import {
   CATALOG, clone, initialConfig, invariant, parseConfiguration, validateConfig, visible,
 } from './configuration';
@@ -25,6 +28,7 @@ interface UIState extends PanelModelState {
   message: string;
   /** Name of the last configuration file chosen for loading. */
   fileName: string;
+  simulationLag: number;
 }
 interface SimulatorAPI {
   getConfig(): Configuration;
@@ -54,11 +58,15 @@ export type Simulator = ReturnType<typeof createSimulator>;
 export function createSimulator() {
   const initial = initialConfig();
   const drive = new VFDDrive(initial);
+  let previousFrameTime = performance.now();
+  const scopeHistory = createScopeHistory();
+  drive.onPhysicalSample(sample => scopeHistory.push(sample));
   const state = createMutable<UIState>({
     config: initial,
     ...initialPanelState(initial),
     message: 'Listo. Arranque con Marcha (LI1).',
     fileName: '',
+    simulationLag: 0,
   });
   // The shaft angle changes every frame; it goes to frame listeners, not to a signal.
   const frameListeners = new Set<(angle: number) => void>();
@@ -79,6 +87,7 @@ export function createSimulator() {
   function installConfiguration(next: ValidConfiguration, reset = false, inhibit = false): void {
     batch(() => {
       drive.setConfig(next, reset ? { reset: true } : {});
+      if (reset) { scopeHistory.clear(); state.simulationLag = 0; previousFrameTime = performance.now(); }
       if (inhibit) drive.inhibitCommands();
       state.config = next;
       commitReadings();
@@ -99,6 +108,22 @@ export function createSimulator() {
   function saveParameter<K extends ParameterId>(id: K, value: ParameterValues[NoInfer<K>], held = 0): boolean {
     return batch(() => panel.saveParameter(id, value, held));
   }
+  const motorEstimate = createMemo(() => estimateMotorCircuit(state.config.motor));
+  const motorCircuit = createMemo(() => state.config.motorElectrical.mode === 'manual'
+    ? makeMotorCircuit(state.config.motorElectrical.parameters, state.config.motor.poles / 2)
+    : motorEstimate().circuit);
+  function motorCanChange(): boolean {
+    const r = readings();
+    return isStopped() && Math.abs(r.omega) <= .05 && r.output.mode === 'off';
+  }
+  function setMotorElectrical(parameters: MotorCircuitParameters | null): boolean {
+    if (!motorCanChange()) { status('Desactive la salida y espere que se detenga el eje para cambiar el motor.'); return false; }
+    const next = rawConfiguration();
+    next.motorElectrical = parameters === null ? { mode: 'estimated' } : { mode: 'manual', parameters: { ...parameters } };
+    if (!applyConfiguration(next)) return false;
+    status('');
+    return true;
+  }
   function importText(text: string): ValidationResult<Configuration> {
     const result = parseConfiguration(text);
     if (!result.ok) return result;
@@ -106,7 +131,8 @@ export function createSimulator() {
       installConfiguration(result.value, true);
       state.locked = result.value.parameters['SUP.COd'] !== 0;
       resetPanel();
-      status('Configuración cargada. Libere los mandos de marcha antes de arrancar.');
+      const legacy = !Object.hasOwn(JSON.parse(text), 'motorElectrical');
+      status((legacy ? 'Archivo anterior: circuito eléctrico estimado desde la placa. ' : '') + 'Configuración cargada. Libere los mandos de marcha antes de arrancar.');
     });
     return { ok: true, value: rawConfiguration() };
   }
@@ -117,18 +143,14 @@ export function createSimulator() {
   }
   function advance(seconds: number): void { drive.advance(seconds); commitReadings(); }
   function beginClock(): void {
-    let previousTime = performance.now();
     let animationFrame: number;
-    const visibilityChanged = (): void => { previousTime = performance.now(); };
+    const visibilityChanged = (): void => { previousFrameTime = performance.now(); };
     document.addEventListener('visibilitychange', visibilityChanged);
     const frame = (time: number): void => {
-      let remaining = Math.max(0, (time - previousTime) / 1000);
-      previousTime = time;
+      const remaining = Math.max(0, (time - previousFrameTime) / 1000);
+      previousFrameTime = time;
       if (!document.hidden) {
-        while (remaining > 0) {
-          const seconds = Math.min(remaining, 60);
-          drive.advance(seconds); remaining -= seconds;
-        }
+        state.simulationLag = drive.advanceBudget(remaining, 8).backlog;
         commitReadings();
       }
       animationFrame = requestAnimationFrame(frame);
@@ -150,8 +172,8 @@ export function createSimulator() {
   /** All bench changes pass through the same configuration validation. */
   function commitField<S extends ExternalSection>(section: S, key: keyof Configuration[S] & string, value: unknown): boolean {
     return batch(() => {
-      if (section === 'motor' && !isStopped()) {
-        status('Detenga el variador para cambiar el motor.');
+      if (section === 'motor' && !motorCanChange()) {
+        status('Desactive la salida y espere que se detenga el eje para cambiar el motor.');
         return false;
       }
       const previous = rawConfiguration();
@@ -208,7 +230,7 @@ export function createSimulator() {
   };
   beginClock();
   return {
-    state, readings, onFrame, display, flashing, selected, items, panelSnapshot, isStopped,
+    state, readings, scopeHistory, motorCircuit, motorEstimate, setMotorElectrical, motorCanChange, onFrame, display, flashing, selected, items, panelSnapshot, isStopped,
     key, enter, escapeKey, navigate, canNavigate, commitExternal, commitNumber, toggleInput, togglePhase, inputRole, operatorNote, analogReading,
     download, importFile, status, monitorLabel,
   };

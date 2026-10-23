@@ -404,7 +404,8 @@ test('DC meters and traces agree for every connected injection pair', () => {
       c.parameters['FUn.AdC.ACt'] = 'Ct';
       if (open) c.inputs.outputConnections[open] = false;
     }));
-    e.advance(1);
+    // Include precharge before one second of physical PI settling.
+    e.advance(1.3);
     const signal = fromEngine(e),
       currents = W.phaseCurrents(signal, 0),
       d = W.duties(signal, 0);
@@ -414,7 +415,8 @@ test('DC meters and traces agree for every connected injection pair', () => {
     assert.ok(Math.abs(Object.values(currents).reduce((a, b) => a + b, 0)) < 1e-12);
     for (const phase of W.PHASES) assert.ok(Math.abs(Math.abs(currents[phase]) - signal.current[phase]) < 1e-12);
     assert.ok(Math.abs(Math.hypot(...Object.values(currents)) / Math.sqrt(3) - e.state.LCr) < 1e-12);
-    assert.ok(Math.abs(currents[connected[0]] - e.config.parameters['FUn.AdC.SdC']) < 1e-9);
+    // Physical PI settling is finite; the meter/trace identities stay exact.
+    assert.ok(Math.abs(currents[connected[0]] - e.config.parameters['FUn.AdC.SdC']) < 1e-5);
     for (const sink of connected.slice(1)) assert.ok(Math.abs((d[connected[0]] - d[sink]) * signal.dcBus - signal.voltage) < 1e-9);
   }
 });
@@ -497,12 +499,13 @@ test('Reverse zoom centers the selected signed electrical angle', () => {
   });
   assert.ok(Math.abs(W.angleAt(signal, zoom.start + zoom.length / 2) - Math.PI / 3) < 1e-12);
 });
-test('Opposite rotor and AC field directions consume power during plugging', () => {
+test('A controlled reversal reaches plugging with opposite rotor and AC field directions', () => {
   const e = new Engine(config(c => {
     c.mechanical.inertia = .1;
     c.mechanical.torque = 0;
     c.inputs.brakeModule = true;
     c.parameters['FUn.tUL'] = 0;
+    c.parameters['FUn.tOL'] = 0;
     c.parameters['FUn.brA'] = 'nO';
     c.parameters.ACC = 0;
     c.parameters.dEC = 0;
@@ -515,12 +518,15 @@ test('Opposite rotor and AC field directions consume power during plugging', () 
     LI1: false,
     LI2: true
   });
+  assert(e.state.rpm > 1400);
   let plugging = false;
-  for (let n = 0; n < 200; n++) {
+  // Finite frequency/current control crosses zero after decelerating the rotor.
+  for (let n = 0; n < 800; n++) {
     e.advance(.005);
     const r = e.state;
-    if (r.outputMode === 'ac' && r.frequency < -1 && r.rpm > 1000 && r.torque < 0) {
+    if (r.outputMode === 'ac' && r.frequency < -1 && r.rpm > 100 && r.torque < 0) {
       plugging = true;
+      assert.ok(r.inputPower > 0);
       assert.equal(r.regenerativePower, 0);
       assert.ok(r.currentLag < Math.PI / 2);
       break;

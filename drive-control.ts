@@ -4,7 +4,10 @@
  * Gains/bandwidth below are teaching choices, not Schneider firmware settings.
  * Physical current and torque belong to the motor model and are never clipped.
  */
-export const CURRENT_LIMITER_GAINS = Object.freeze({ proportional: 0.15, integral: 120 });
+// This envelope-loop gain is checked against the coupled flux/shaft model,
+// including reconnection after single phasing. A scalar RL load alone misses
+// the rotor-flux/mechanical feedback that can destabilize amplitude limiting.
+export const CURRENT_LIMITER_GAINS = Object.freeze({ proportional: 0.15, integral: 30 });
 export const DC_CURRENT_BANDWIDTH = 200; // rad/s, for the averaged electrical loop.
 const bounded = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 const canIntegrate = (raw: number, change: number, maximum: number): boolean =>

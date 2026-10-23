@@ -6,6 +6,9 @@ import catalogData from './catalog-final.json';
 import { PHASES, LOGIC_INPUTS } from './engine-types';
 import type { EngineConfiguration, Inputs, MotorSpecification, MechanicalLoad } from './engine-types';
 import { invariant } from './invariant';
+import { MOTOR_CIRCUIT_RANGES } from './motor-circuit';
+import type { MotorCircuitParameters } from './motor-circuit';
+import type { MotorElectrical } from './engine-types';
 export { invariant } from './invariant';
 import { PARAMETER_IDS, MONITORS } from './parameter-types';
 import type { ParameterId, ParameterValues, CodeValue, MonitorCode, MonitorId } from './parameter-types';
@@ -16,6 +19,7 @@ export const MODEL = 'ATV11HU09M2E' as const;
 export const PROFILE = 'V1.2-IE21' as const;
 export type InputMode = 'switch' | 'button';
 export interface Configuration extends EngineConfiguration {
+  motorElectrical: MotorElectrical;
   schema: 'variador-aula';
   version: 1;
   model: typeof MODEL;
@@ -269,7 +273,11 @@ const inputKeys = {
 const inputBooleans = ['powered', 'LI1', 'LI2', 'LI3', 'LI4', 'shaftHeld', 'shortCircuit', 'brakeModule'] as const;
 export const INPUT_RANGES = { supplyV: [0, 350], analogPosition: [0, 100], ambient: [0, 60], ventilation: [0, 1] } as const;
 export function validateConfig(value: unknown): ValidationResult<ValidConfiguration> {
-  const keys = exactKeys(value, ['schema', 'version', 'model', 'firmwareProfile', 'parameters', 'motor', 'mechanical', 'inputs', 'inputModes', 'driveMemory'], 'Archivo');
+  // Version 1 files predate the equivalent circuit. Its only optional field is
+  // normalized explicitly to estimated mode; unknown fields still reject.
+  const fields = ['schema', 'version', 'model', 'firmwareProfile', 'parameters', 'motor', 'mechanical', 'inputs', 'inputModes', 'driveMemory'];
+  if (isRecord(value) && Object.hasOwn(value, 'motorElectrical')) fields.push('motorElectrical');
+  const keys = exactKeys(value, fields, 'Archivo');
   if (!keys.ok) return keys;
   const c = keys.value;
   if (c.schema !== 'variador-aula' || c.version !== 1 || c.model !== MODEL || c.firmwareProfile !== PROFILE) return failure('Archivo incompatible con este modelo o versión.');
@@ -281,6 +289,23 @@ export function validateConfig(value: unknown): ValidationResult<ValidConfigurat
   if (!actualMotor.ok) return actualMotor;
   if (actualMotor.value.poles % 2) return failure('El número de polos debe ser par.');
   if (actualMotor.value.speedRPM >= 120 * actualMotor.value.frequency / actualMotor.value.poles) return failure('La velocidad nominal debe ser menor que la sincrónica.');
+  let motorElectrical: MotorElectrical = { mode: 'estimated' };
+  if (c.motorElectrical !== undefined) {
+    if (!isRecord(c.motorElectrical)) return failure('Circuito del motor: se esperaba un objeto.');
+    const circuit = c.motorElectrical;
+    if (circuit.mode === 'estimated') {
+      const checked = exactKeys(circuit, ['mode'], 'Circuito estimado');
+      if (!checked.ok) return checked;
+    } else if (circuit.mode === 'manual') {
+      const checked = exactKeys(circuit, ['mode', 'parameters'], 'Circuito manual');
+      if (!checked.ok) return checked;
+      const values = exactKeys(circuit.parameters, recordKeys(MOTOR_CIRCUIT_RANGES), 'Parámetros eléctricos');
+      if (!values.ok) return values;
+      const numbers = numericFields(values.value, MOTOR_CIRCUIT_RANGES, key => 'Circuito ' + key);
+      if (!numbers.ok) return numbers;
+      motorElectrical = { mode: 'manual', parameters: clone(numbers.value) as MotorCircuitParameters };
+    } else return failure('Circuito del motor: modo desconocido.');
+  }
   const mechanical = exactKeys(c.mechanical, recordKeys(MECHANICAL_RANGES), 'Carga');
   if (!mechanical.ok) return mechanical;
   const actualMechanical = numericFields(mechanical.value, MECHANICAL_RANGES, key => key === 'torque' ? 'Par de carga' : key === 'friction' ? 'Fricción' : 'Inercia de carga');
@@ -317,6 +342,7 @@ export function validateConfig(value: unknown): ValidationResult<ValidConfigurat
     schema: 'variador-aula', version: 1, model: MODEL, firmwareProfile: PROFILE,
     parameters: parameters.value,
     motor: clone(actualMotor.value),
+    motorElectrical,
     mechanical: clone(actualMechanical.value),
     inputs: { ...clone(booleans.value), ...clone(numbers.value), outputConnections: clone(actualConnections.value), analogType },
     inputModes: clone(actualModes.value),
@@ -351,7 +377,10 @@ export function initialConfig(): ValidConfiguration {
   const candidate: Configuration = {
     schema: 'variador-aula', version: 1, model: MODEL, firmwareProfile: PROFILE, parameters,
     motor: { powerKW: .37, voltage: 230, frequency: 50, current: 2.1, speedRPM: 1420, poles: 4, cosPhi: .8, inertia: .002 },
-    mechanical: { torque: 1.2, friction: .002, inertia: .008 },
+    motorElectrical: { mode: 'estimated' },
+    // This bench load keeps the estimated motor above factory LUL at 25/50 Hz.
+    // It is a classroom load choice; drive parameter defaults stay in CATALOG.
+    mechanical: { torque: 2.1, friction: .002, inertia: .008 },
     inputs: { powered: true, supplyV: 230, LI1: false, LI2: false, LI3: false, LI4: false, analogType: '5V', analogPosition: 50, outputConnections: { U: true, V: true, W: true }, shaftHeld: false, shortCircuit: false, brakeModule: false, ambient: 25, ventilation: 1 },
     inputModes: { LI1: 'switch', LI2: 'switch', LI3: 'switch', LI4: 'switch' },
     driveMemory: { backupParameters: clone(parameters), backupValid: false, monitor: 'FrH', firstBoot: true },

@@ -17,7 +17,7 @@ test('Scope traces, zoom, voltage references and integrated audio/fullscreen con
   await page.clock.pauseAt(start + 10000);
   const sleep = async milliseconds => {
     await page.evaluate(seconds => VFDSimulator.advance(seconds), milliseconds / 1000);
-    await page.clock.runFor(100);
+    await page.clock.runFor(200);
   };
   const value = expression => page.evaluate(expression),
     evaluate = value,
@@ -33,6 +33,7 @@ test('Scope traces, zoom, voltage references and integrated audio/fullscreen con
   await test.step('the scope tab draws the PWM voltage, its fundamental and three currents while running', async () => {
     await evaluate('VFDSimulator.importText(' + JSON.stringify(JSON.stringify(factory)) + ')');
     await click('#tab-scope');
+    await click('#scope-periods');
     assert.equal(await value("document.getElementById('tab-scope').getAttribute('aria-selected')"), 'true');
     assert.match(await value("document.getElementById('scope-summary').textContent"), /Sin salida/);
     await click('#LI1');
@@ -92,6 +93,53 @@ test('Scope traces, zoom, voltage references and integrated audio/fullscreen con
   await test.step('the fullscreen button appears exactly where the browser supports it', async () => {
     assert.equal(await value("document.getElementById('fullscreen-toggle') !== null"), await value('document.fullscreenEnabled'));
   });
+});
+test('Physical scope records live transients and holds single-shot start, load and fault captures', async ({ app }) => {
+  const { page, drive, shot } = app;
+  await page.clock.pauseAt(Date.now() + 10000);
+  await page.locator('#tab-scope').click();
+  assert.equal(await page.locator('#scope-history').getAttribute('aria-pressed'), 'true');
+  await page.locator('#scope-duration').selectOption('1');
+  const advance = async seconds => {
+    await page.evaluate(value => VFDSimulator.advance(value), seconds);
+    await page.clock.runFor(200);
+  };
+  const status = () => page.locator('#scope-capture-status').textContent();
+  const image = () => page.locator('#scope-canvas').evaluate(canvas => canvas.toDataURL());
+
+  await page.locator('#scope-arm').click();
+  assert.match(await status(), /Esperando: Arranque/);
+  await page.locator('#LI1').click();
+  await advance(1.2);
+  assert.match(await status(), /Captura completa/);
+  const held = await image();
+  await advance(.3);
+  assert.equal(await image(), held, 'a completed capture must retain its physical samples');
+  await shot('scope-captured-start');
+  for (const channels of ['mechanical', 'magnetic', 'electrical']) {
+    await page.locator('#scope-channels-' + channels).click();
+    await page.clock.runFor(200);
+    assert.equal(await page.locator('#scope-channels-' + channels).getAttribute('aria-pressed'), 'true');
+    await shot('scope-history-' + channels);
+  }
+
+  await page.locator('#scope-live').click();
+  await page.locator('#scope-trigger').selectOption('load');
+  await page.locator('#scope-arm').click();
+  await page.locator('#load').focus();
+  await page.keyboard.press('ArrowRight');
+  await advance(1);
+  assert.match(await status(), /Captura completa/);
+  await shot('scope-captured-load');
+
+  await page.locator('#scope-live').click();
+  await page.locator('#scope-trigger').selectOption('fault');
+  await page.locator('#scope-arm').click();
+  await page.locator('#short-bridge').click();
+  await advance(1);
+  assert.equal((await drive()).fault, 'SCF');
+  assert.match(await status(), /Captura completa/);
+  await shot('scope-captured-fault');
 });
 test('Brake module toggles and guide retains route and fault explanations', async ({
   app

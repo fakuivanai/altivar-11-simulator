@@ -94,9 +94,9 @@ test("factory setup, relay, official manual and ENT-ready semantics", async ({
   assert.equal((await drive()).running, false);
   assert.equal((await page.evaluate(() => VFDSimulator.panel())).editing, null);
   assert.match(await page.locator('#status').textContent(), /LI1/);
-  const href = await page.locator('.topbar a').getAttribute('href');
+  const href = await page.locator('#manufacturer-manual').getAttribute('href');
   assert.equal(href, userManual + '#page=53');
-  assert.equal(await page.locator('.topbar a').getAttribute('title'), 'Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.');
+  assert.equal(await page.locator('#manufacturer-manual').getAttribute('title'), 'Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.');
 });
 test('official manual clicks support PDF downloads and preserve simulator state', async ({
   app
@@ -154,7 +154,7 @@ test('official manual clicks support PDF downloads and preserve simulator state'
     const technical = documents.find(document => document.id === 'technical');
     assert.ok(technical);
     for (const [target, selector, href, navigate] of [
-      [app.file, '.topbar a', userManual + '#page=53', null],
+      [app.file, '#manufacturer-manual', userManual + '#page=53', null],
       [app.guide, '#guide a[href="' + technical.sourceUrl + '#page=38"]', technical.sourceUrl + '#page=38', 'FUn.tLS']
     ]) {
       await page.goto(target);
@@ -438,12 +438,16 @@ test("native nameplate fields reject running/invalid changes and update when sto
   await page.waitForFunction(() => VFDSimulator.getState().running);
   await page.locator('#tab-motor').click();
   const power = page.locator('#settings .fields input').first();
-  await power.fill('0.55');
-  await power.press('Tab');
+  assert.equal(await power.isDisabled(), true);
+  await power.evaluate(field => {
+    field.value = '0.55';
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   assert.equal((await config()).motor.powerKW, .37);
   assert.equal(await power.inputValue(), '0.37');
-  assert.match(await page.locator('#status').textContent(), /Detenga el variador/);
+  assert.match(await page.locator('#status').textContent(), /Desactive la salida/);
   await stop();
+  await page.waitForFunction(() => !document.querySelector('#settings .fields input').disabled);
   await power.fill('0.55');
   await power.press('Tab');
   assert.equal((await config()).motor.powerKW, .55);

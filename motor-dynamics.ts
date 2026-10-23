@@ -25,6 +25,8 @@ export interface MotorReadings {
    * aggregate under unbalance/DC. Temporal phase RMS needs a measurement window. */
   readonly currentRms: number;
   readonly inputPower: number;
+  /** Signed interval-mean instantaneous alpha/beta reactive power. */
+  readonly reactivePower: number;
   readonly statorCopperLoss: number;
   readonly rotorCopperLoss: number;
   readonly magneticEnergy: number;
@@ -71,7 +73,7 @@ export class InductionMotorDynamics {
     time: 0, electricalAngle: 0, torque: 0, instantaneousTorque: 0,
     phaseCurrent: { U: 0, V: 0, W: 0 }, phaseVoltage: { U: 0, V: 0, W: 0 },
     statorFlux: { alpha: 0, beta: 0 }, rotorFlux: { alpha: 0, beta: 0 },
-    currentMagnitude: 0, currentRms: 0, inputPower: 0, statorCopperLoss: 0,
+    currentMagnitude: 0, currentRms: 0, inputPower: 0, reactivePower: 0, statorCopperLoss: 0,
     rotorCopperLoss: 0, magneticEnergy: 0, switchingLoss: 0, numericalLoss: 0,
   };
   constructor(readonly circuit: MotorCircuit) {}
@@ -84,8 +86,8 @@ export class InductionMotorDynamics {
   }
   /** Pass a previous checkpoint to avoid allocating in the coupled fast loop. */
   checkpoint(target?: MotorCheckpoint): MotorCheckpoint {
-    const saved = target ?? { circuit: this.circuit, values: new Float64Array(28) };
-    if (saved.circuit !== this.circuit || saved.values.length !== 28) throw new RangeError('Motor checkpoint belongs to another circuit.');
+    const saved = target ?? { circuit: this.circuit, values: new Float64Array(29) };
+    if (saved.circuit !== this.circuit || saved.values.length !== 29) throw new RangeError('Motor checkpoint belongs to another circuit.');
     const v = saved.values, r = this.sample;
     v[0] = this.sa; v[1] = this.sb; v[2] = this.ra; v[3] = this.rb;
     v[4] = this.angle; v[5] = this.connection;
@@ -95,13 +97,13 @@ export class InductionMotorDynamics {
     v[16] = r.statorFlux.alpha; v[17] = r.statorFlux.beta; v[18] = r.rotorFlux.alpha; v[19] = r.rotorFlux.beta;
     v[20] = r.currentMagnitude; v[21] = r.currentRms; v[22] = r.inputPower;
     v[23] = r.statorCopperLoss; v[24] = r.rotorCopperLoss; v[25] = r.magneticEnergy;
-    v[26] = r.switchingLoss; v[27] = r.numericalLoss;
+    v[26] = r.switchingLoss; v[27] = r.numericalLoss; v[28] = r.reactivePower;
     return saved;
   }
   /** Restore physical state and the existing borrowed output objects exactly. */
   restore(saved: MotorCheckpoint): MotorReadings {
     const v = saved.values;
-    if (saved.circuit !== this.circuit || v.length !== 28 || !v.every(Number.isFinite))
+    if (saved.circuit !== this.circuit || v.length !== 29 || !v.every(Number.isFinite))
       throw new RangeError('Invalid motor checkpoint.');
     this.sa = v[0]!; this.sb = v[1]!; this.ra = v[2]!; this.rb = v[3]!;
     this.angle = v[4]!; this.connection = v[5]!;
@@ -112,7 +114,7 @@ export class InductionMotorDynamics {
     r.statorFlux.alpha = v[16]!; r.statorFlux.beta = v[17]!; r.rotorFlux.alpha = v[18]!; r.rotorFlux.beta = v[19]!;
     r.currentMagnitude = v[20]!; r.currentRms = v[21]!; r.inputPower = v[22]!;
     r.statorCopperLoss = v[23]!; r.rotorCopperLoss = v[24]!; r.magneticEnergy = v[25]!;
-    r.switchingLoss = v[26]!; r.numericalLoss = v[27]!;
+    r.switchingLoss = v[26]!; r.numericalLoss = v[27]!; r.reactivePower = v[28]!;
     return r;
   }
   reset(): void {
@@ -165,7 +167,7 @@ export class InductionMotorDynamics {
     const sdiag = 1 + q * Rs / sigma, b = q * Rs * k / sigma, d = q * Rr * k / sigma;
     const rbase = 1 + q * gamma, rotation = q * wr;
     const rdiag = rbase + q * Rr * k * k / sigma - d * b / sdiag;
-    let torqueIntegral = 0, inputIntegral = 0, statorLossIntegral = 0, rotorLossIntegral = 0, numericalLoss = 0;
+    let torqueIntegral = 0, inputIntegral = 0, reactiveIntegral = 0, statorLossIntegral = 0, rotorLossIntegral = 0, numericalLoss = 0;
     for (let n = 0; n < steps && h > 0; n++) {
       const sourceAngle = this.angle + theta * sourceFrequency * h;
       const va = excitation.mode === 'ac' ? peakVoltage * Math.sin(sourceAngle) : dcA;
@@ -201,6 +203,7 @@ export class InductionMotorDynamics {
       const torque = 1.5 * c.polePairs * (ma * ib - mb * ia);
       torqueIntegral += torque * h;
       inputIntegral += 1.5 * (va * ia + vb * ib) * h;
+      reactiveIntegral += 1.5 * (vb * ia - va * ib) * h;
       statorLossIntegral += 1.5 * Rs * (ia * ia + ib * ib) * h;
       rotorLossIntegral += 1.5 * Rr * (ira * ira + irb * irb) * h;
       this.sa = oldSa + (ma - oldSa) / theta; this.sb = oldSb + (mb - oldSb) / theta;
@@ -232,6 +235,7 @@ export class InductionMotorDynamics {
     out.statorFlux.alpha = this.sa; out.statorFlux.beta = this.sb; out.rotorFlux.alpha = this.ra; out.rotorFlux.beta = this.rb;
     out.currentMagnitude = Math.hypot(ia, ib); out.currentRms = out.currentMagnitude / Math.SQRT2;
     out.inputPower = seconds > 0 ? inputIntegral / seconds : 1.5 * (effectiveA * ia + effectiveB * ib);
+    out.reactivePower = seconds > 0 ? reactiveIntegral / seconds : 1.5 * (effectiveB * ia - effectiveA * ib);
     out.statorCopperLoss = seconds > 0 ? statorLossIntegral / seconds : 1.5 * Rs * (ia * ia + ib * ib);
     out.rotorCopperLoss = seconds > 0 ? rotorLossIntegral / seconds : 1.5 * Rr * (ira * ira + irb * irb);
     // Decomposed form avoids cancellation when Lm is much larger than leakage.
