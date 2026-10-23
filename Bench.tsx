@@ -102,7 +102,7 @@ export function HoldShaft(): JSX.Element {
   });
   return (
     <button id="hold-shaft" {...place(HOLD_BUTTON, 'fault-action')} aria-pressed={held()} title="Mantener pulsado" {...press}>
-      {held() ? 'Eje bloqueado' : 'Bloquear eje'}
+      {held() ? 'Reteniendo eje' : 'Retener eje'}
     </button>
   );
 }
@@ -117,7 +117,7 @@ export function Bench(): JSX.Element {
     <div id="hint" {...place(HINT)}>
       <b>Cómo usar el esquema</b><br />
       Pulse un contacto para abrirlo o cerrarlo: red, LI1 a LI4 y conductores U, V, W. Los botones rojos provocan fallas.
-      Bloquear eje actúa mientras se mantiene pulsado.
+      Retener eje actúa mientras se mantiene pulsado.
     </div>
   </>;
 }

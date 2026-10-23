@@ -291,12 +291,16 @@ test("native held ENT confirms 3C and LI2 latches while LI1 stops", async ({
   await page.locator('#esc').click();
   await page.locator('#LI1').click();
   await page.locator('#LI2').click();
+  // These native-input/layout assertions depend on model time, not rendering speed.
+  await page.evaluate(() => VFDSimulator.advance(6));
   await page.waitForFunction(() => VFDSimulator.getState().running && VFDSimulator.getState().rpm > 450);
   await page.locator('#LI2').click();
   await pause(100);
+  await page.evaluate(() => VFDSimulator.advance(0));
   assert.equal((await drive()).running, true);
   await audit('3C-running');
   await page.locator('#LI1').click();
+  await page.evaluate(() => VFDSimulator.advance(6));
   await page.waitForFunction(() => !VFDSimulator.getState().running && Math.abs(VFDSimulator.getState().rpm) < 1);
   await install(original);
 });
@@ -478,6 +482,7 @@ test("one open phase has zero current; two opens have no closed circuit", async 
   await install(original);
   await page.locator('#phase-W').click();
   await page.locator('#LI1').click();
+  await page.evaluate(() => VFDSimulator.advance(0));
   await page.waitForFunction(() => VFDSimulator.getState().phaseCurrentU > 0);
   const single = await drive();
   assert.equal(single.phaseCurrentW, 0);
@@ -486,6 +491,7 @@ test("one open phase has zero current; two opens have no closed circuit", async 
   assert.equal(single.fault, null);
   assert.equal(single.rpm, 0);
   await page.locator('#phase-V').click();
+  await page.evaluate(() => VFDSimulator.advance(0));
   await page.waitForFunction(() => VFDSimulator.getState().LCr === 0);
   const open = await drive();
   assert.equal(open.LCr, 0);
@@ -494,6 +500,8 @@ test("one open phase has zero current; two opens have no closed circuit", async 
   await audit('two-open-phases');
   await page.locator('#phase-V').click();
   await page.locator('#phase-W').click();
+  // Settle reconnection independently of the animation-frame work budget.
+  await page.evaluate(() => VFDSimulator.advance(6));
   await page.waitForFunction(() => VFDSimulator.getState().rpm > 450);
   await install(original);
 });
@@ -510,11 +518,41 @@ test("native shaft hold freezes angle and release resumes acceleration", async (
     stop,
     original
   } = app;
-  await install(original);
+  // Isolate finite brake mechanics from optional current-load alarms. Other
+  // browser cases continue to use the unchanged default classroom bench.
+  const mechanics = structuredClone(original);
+  mechanics.mechanical.torque = 1.2;
+  mechanics.parameters['FUn.tOL'] = mechanics.parameters['FUn.tUL'] = 0;
+  await install(mechanics);
   await page.locator('#LI1').click();
   await page.waitForFunction(() => VFDSimulator.getState().rpm > 600);
+  await page.evaluate(() => {
+    document.addEventListener('pointerdown', event => {
+      if (!event.target.closest('#hold-shaft')) return;
+      // Public advance drains pending frame time. Flush it before the native
+      // brake handler, while the shaft is free, so the later step is exactly 5 ms.
+      window.shaftFreeBeforeHold = !VFDSimulator.getConfig().inputs.shaftHeld;
+      VFDSimulator.advance(0);
+    }, { once: true, capture: true });
+    document.addEventListener('pointerdown', event => {
+      if (!event.target.closest('#hold-shaft')) return;
+      // This listener follows the registered native/delegated UI handler.
+      // One physical step distinguishes finite travel from a speed clamp.
+      const before = VFDSimulator.getState();
+      VFDSimulator.advance(.005);
+      window.shaftHoldStep = { held: VFDSimulator.getConfig().inputs.shaftHeld,
+        freeBefore: window.shaftFreeBeforeHold, before, after: VFDSimulator.getState() };
+    }, { once: true });
+  });
   await pointerDown('#hold-shaft');
-  await pause(150);
+  const first = await page.evaluate(() => window.shaftHoldStep);
+  assert.equal(first.freeBefore, true);
+  assert.equal(first.held, true);
+  assert.ok(Math.abs(first.after.time - first.before.time - .005) < 1e-9);
+  assert.ok(first.after.rpm > 0 && first.after.rpm < first.before.rpm,
+    `Finite brake step: ${first.before.rpm} to ${first.after.rpm}rpm`);
+  assert.notEqual(first.after.angle, first.before.angle);
+  await page.waitForFunction(() => VFDSimulator.getState().rpm === 0 && VFDSimulator.getState().currentLimited);
   const held = await drive();
   assert.equal(held.rpm, 0);
   assert.ok(held.currentLimited);

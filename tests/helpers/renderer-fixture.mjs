@@ -3,7 +3,8 @@ import { bundleFixture, openFixture } from './bundle-fixture.mjs';
 const source = `
 import {makeMotorView} from './motor-view.ts';
 const canvas = document.getElementById('motor');
-const gl = canvas.getContext('webgl', {alpha:false, antialias:true, depth:true});
+// Retain pixels for isolated readback, including cached stationary frames.
+const gl = canvas.getContext('webgl', {alpha:false, antialias:true, depth:true, preserveDrawingBuffer:true});
 if (!gl) throw Error('WebGL is required for the isolated renderer test');
 const live = {buffers:new Set(), programs:new Set(), shaders:new Set()};
 const allocated = {buffers:[], programs:[]};

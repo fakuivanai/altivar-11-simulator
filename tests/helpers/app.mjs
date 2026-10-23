@@ -66,6 +66,8 @@ export const test = base.extend({
       const canvas = document.getElementById('motor-canvas'),
         gl = canvas.getContext('webgl');
       if (!gl) throw Error('WebGL required');
+      // Raw readback needs a fresh non-preserved production drawing buffer.
+      canvas.width += 1;
       VFDSimulator.advance(0);
       const data = new Uint8Array(canvas.width * canvas.height * 4);
       gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, data);

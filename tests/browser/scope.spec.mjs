@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from '../helpers/app.mjs';
 test.use({
   controlledClock: true
@@ -105,7 +106,18 @@ test('Physical scope records live transients and holds single-shot start, load a
     await page.clock.runFor(200);
   };
   const status = () => page.locator('#scope-capture-status').textContent();
-  const image = () => page.locator('#scope-canvas').evaluate(canvas => canvas.toDataURL());
+  const canvas = page.locator('#scope-canvas');
+  // Keep drawing dimensions fixed while checking retained physical samples.
+  // The live summary can wrap and resize the ordinary responsive canvas.
+  await canvas.evaluate(element => { element.style.flex = '0 0 120px'; });
+  await page.clock.runFor(200);
+  const image = async () => {
+    const drawn = await canvas.evaluate(element => ({
+      data: element.toDataURL(), width: element.width, height: element.height
+    }));
+    return { width: drawn.width, height: drawn.height,
+      hash: createHash('sha256').update(drawn.data).digest('hex') };
+  };
 
   await page.locator('#scope-arm').click();
   assert.match(await status(), /Esperando: Arranque/);
@@ -114,7 +126,7 @@ test('Physical scope records live transients and holds single-shot start, load a
   assert.match(await status(), /Captura completa/);
   const held = await image();
   await advance(.3);
-  assert.equal(await image(), held, 'a completed capture must retain its physical samples');
+  assert.deepEqual(await image(), held, 'a completed capture must retain its physical samples at fixed drawing dimensions');
   await shot('scope-captured-start');
   for (const channels of ['mechanical', 'magnetic', 'electrical']) {
     await page.locator('#scope-channels-' + channels).click();

@@ -64,6 +64,34 @@ test.describe('renderer at device scale 1', () => {
       programs: true
     });
   });
+  test('stationary frames skip GPU draws while angle and canvas changes redraw', async ({ page }) => {
+    const counts = await page.evaluate(() => {
+      const canvas = document.getElementById('motor');
+      const gl = canvas.getContext('webgl');
+      const drawArrays = gl.drawArrays.bind(gl);
+      let draws = 0;
+      gl.drawArrays = (...args) => { draws++; drawArrays(...args); };
+      try {
+        motorFixture.draw(.123);
+        const initial = draws;
+        for (let frame = 0; frame < 120; frame++) motorFixture.draw(.123);
+        const stationary = draws;
+        motorFixture.draw(.456);
+        const moving = draws;
+        motorFixture.resize(301, 175);
+        motorFixture.draw(.456);
+        const resized = draws;
+        motorFixture.draw(.456);
+        const settled = draws;
+        canvas.width += 1;
+        motorFixture.draw(.456);
+        return { initial, stationary, moving, resized, settled, backingReset: draws, width: canvas.width };
+      } finally {
+        gl.drawArrays = drawArrays;
+      }
+    });
+    assert.deepEqual(counts, { initial: 2, stationary: 2, moving: 4, resized: 6, settled: 6, backingReset: 8, width: 301 });
+  });
   test('a quarter turn rotates the radial mark and a full turn restores the image', async ({
     page
   }) => {
