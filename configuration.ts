@@ -1,11 +1,12 @@
-import { invariant } from './invariant';
-export { invariant } from './invariant';
 // Original configuration model. Parameter facts and page locators come from the
 // reviewed Schneider ATV11 E/U V1.2 IE >= 21 catalog, catalog-final.json.
 // The extended V1.2 manual supplies PI details. See Fuentes.md for the sources
 // and the documented interpretations of unspecified factory values and ranges.
 import catalogData from './catalog-final.json';
+import { PHASES, LOGIC_INPUTS } from './engine-types';
 import type { EngineConfiguration, Inputs, MotorSpecification, MechanicalLoad } from './engine-types';
+import { invariant } from './invariant';
+export { invariant } from './invariant';
 import { PARAMETER_IDS, MONITORS } from './parameter-types';
 import type { ParameterId, ParameterValues, CodeValue, MonitorCode, MonitorId } from './parameter-types';
 export { MONITORS, PARAMETER_IDS } from './parameter-types';
@@ -84,7 +85,6 @@ export interface MonitorMetadata extends MetadataBase {
 export type CatalogItem = NumericParameterMetadata | ChoiceParameterMetadata | MonitorMetadata;
 export type ParameterMetadata = NumericParameterMetadata | ChoiceParameterMetadata;
 
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -110,7 +110,7 @@ function catalogNumber(value: unknown, name: string): number {
 }
 function catalogStrings(value: unknown, name: string): string[] {
   invariant(Array.isArray(value) && value.every((item: unknown) => typeof item === 'string'), name + ' debe contener una lista de texto.');
-  return value as string[];
+  return value;
 }
 function readCatalog(source: unknown): CatalogItem[] {
   invariant(Array.isArray(source), 'El catálogo debe ser una lista.');
@@ -152,7 +152,7 @@ function readCatalog(source: unknown): CatalogItem[] {
       invariant(Array.isArray(entry.choices) && entry.choices.every(isCodeValue), 'Opciones inválidas: ' + id);
       invariant(isCodeValue(entry.default), 'Valor inicial inválido: ' + id);
       invariant(entry.choices.includes(entry.default), 'El valor inicial no está en las opciones: ' + id);
-      return { ...base, kind: 'choice', id, runEditable: entry.runEditable, default: entry.default, choices: entry.choices as CodeValue[] };
+      return { ...base, kind: 'choice', id, runEditable: entry.runEditable, default: entry.default, choices: entry.choices };
     }
     const min = catalogNumber(entry.min, 'Mínimo');
     const max = catalogNumber(entry.max, 'Máximo');
@@ -184,26 +184,60 @@ function numberIssue(value: unknown, min: number, max: number, name: string, ste
   if (step && value !== min && value !== max && Math.abs(value / step - Math.round(value / step)) > 1e-6) return name + ': resolución incorrecta.';
   return undefined;
 }
-function booleanIssue(value: unknown, name: string): string | undefined {
-  return typeof value === 'boolean' ? undefined : name + ': se esperaba verdadero o falso.';
+function recordKeys<T extends object>(value: T): Array<keyof T & string> {
+  return Object.keys(value) as Array<keyof T & string>;
+}
+function numericFields<K extends string>(input: Record<string, unknown>, ranges: Record<K, readonly [number, number]>, label: (key: K) => string): ValidationResult<Record<K, number>> {
+  let error = '';
+  function matches(value: Record<string, unknown>): value is Record<K, number> {
+    for (const key of recordKeys(ranges)) {
+      const issue = numberIssue(value[key], ranges[key][0], ranges[key][1], label(key));
+      if (issue) { error = issue; return false; }
+    }
+    return true;
+  }
+  return matches(input) ? { ok: true, value: input } : failure(error);
+}
+function booleanFields<K extends string>(input: Record<string, unknown>, keys: readonly K[], label: (key: K) => string): ValidationResult<Record<K, boolean>> {
+  let error = '';
+  function matches(value: Record<string, unknown>): value is Record<K, boolean> {
+    for (const key of keys) {
+      if (typeof value[key] !== 'boolean') { error = label(key) + ': se esperaba verdadero o falso.'; return false; }
+    }
+    return true;
+  }
+  return matches(input) ? { ok: true, value: input } : failure(error);
+}
+function isInputMode(value: unknown): value is InputMode { return value === 'switch' || value === 'button'; }
+function modeFields(input: Record<string, unknown>): ValidationResult<Configuration['inputModes']> {
+  let error = '';
+  function matches(value: Record<string, unknown>): value is Configuration['inputModes'] {
+    for (const key of LOGIC_INPUTS) {
+      if (!isInputMode(value[key])) { error = key + ': tipo de mando inválido.'; return false; }
+    }
+    return true;
+  }
+  return matches(input) ? { ok: true, value: input } : failure(error);
 }
 export function validateParameters(value: unknown): ValidationResult<ValidParameters> {
   const keys = exactKeys(value, PARAMETER_IDS, 'Parámetros');
   if (!keys.ok) return keys;
   const input = keys.value;
-  for (const metadata of editableCatalog) {
-    const candidate = input[metadata.id];
-    if (metadata.kind === 'choice') {
-      if (!isCodeValue(candidate) || !metadata.choices.includes(candidate)) return failure(metadata.id + ': opción inválida.');
-    } else {
-      const issue = numberIssue(candidate, metadata.min, metadata.max, metadata.id, metadata.step);
-      if (issue) return failure(issue);
+  let error = '';
+  function hasParameterFields(fields: Record<string, unknown>): fields is Record<string, unknown> & ParameterValues {
+    for (const metadata of editableCatalog) {
+      const candidate = fields[metadata.id];
+      if (metadata.kind === 'choice') {
+        if (!isCodeValue(candidate) || !metadata.choices.includes(candidate)) { error = metadata.id + ': opción inválida.'; return false; }
+      } else {
+        const issue = numberIssue(candidate, metadata.min, metadata.max, metadata.id, metadata.step);
+        if (issue) { error = issue; return false; }
+      }
     }
+    return true;
   }
-  // The catalog is checked against the generated exact identities at startup.
-  // Only this constructor may attach the validated brand after every field has
-  // passed its type/range test and before the dependent constraints below.
-  const p = input as unknown as ParameterValues;
+  if (!hasParameterFields(input)) return failure(error);
+  const p = input;
   if (p.LSP > p.HSP) return failure('LSP debe ser menor o igual que HSP.');
   for (const id of ['SP2', 'SP3', 'SP4'] as const) if (p[id] > p.HSP) return failure(id + ' supera HSP.');
   for (const id of ['FUn.HSP.HS2', 'FUn.HSP.HS3', 'FUn.HSP.HS4'] as const) if (p[id] < p.LSP) return failure(id.split('.').at(-1) + ' es menor que LSP.');
@@ -220,22 +254,20 @@ export function validateParameters(value: unknown): ValidationResult<ValidParame
   if (!frequencies.includes(p['FUn.SFt.SFr'])) return failure('SFr no corresponde al rango SFt.');
   if (p['FUn.SCS'] !== 'nO' || p['FUn.FCS'] !== 'nO') return failure('SCS y FCS deben estar inactivos en un archivo.');
   if (p['SUP.COd'] === 1) return failure('COd admite OFF o un código de 2 a 999.');
-  return { ok: true, value: clone(p) as ValidParameters };
+  return { ok: true, value: clone<ParameterValues>(p) as ValidParameters };
 }
-const motorRanges = {
+export const MOTOR_RANGES = {
   powerKW: [.05, 3], voltage: [100, 500], frequency: [40, 200], current: [.1, 20],
   speedRPM: [50, 12000], poles: [2, 12], cosPhi: [.1, 1], inertia: [.0001, 2],
 } as const satisfies Record<keyof MotorSpecification, readonly [number, number]>;
-const mechanicalRanges = { torque: [-20, 20], friction: [0, .2], inertia: [0, 2] } as const satisfies Record<keyof MechanicalLoad, readonly [number, number]>;
+export const MECHANICAL_RANGES = { torque: [-20, 20], friction: [0, .2], inertia: [0, 2] } as const satisfies Record<keyof MechanicalLoad, readonly [number, number]>;
 const inputKeys = {
   powered: true, supplyV: true, LI1: true, LI2: true, LI3: true, LI4: true,
   analogType: true, analogPosition: true, outputConnections: true, shaftHeld: true,
   shortCircuit: true, brakeModule: true, ambient: true, ventilation: true,
 } as const satisfies Record<keyof Inputs, true>;
 const inputBooleans = ['powered', 'LI1', 'LI2', 'LI3', 'LI4', 'shaftHeld', 'shortCircuit', 'brakeModule'] as const;
-const inputRanges = { supplyV: [0, 350], analogPosition: [0, 100], ambient: [0, 60], ventilation: [0, 1] } as const;
-const outputPhases = ['U', 'V', 'W'] as const;
-const logicInputs = ['LI1', 'LI2', 'LI3', 'LI4'] as const;
+export const INPUT_RANGES = { supplyV: [0, 350], analogPosition: [0, 100], ambient: [0, 60], ventilation: [0, 1] } as const;
 export function validateConfig(value: unknown): ValidationResult<ValidConfiguration> {
   const keys = exactKeys(value, ['schema', 'version', 'model', 'firmwareProfile', 'parameters', 'motor', 'mechanical', 'inputs', 'inputModes', 'driveMemory'], 'Archivo');
   if (!keys.ok) return keys;
@@ -243,50 +275,40 @@ export function validateConfig(value: unknown): ValidationResult<ValidConfigurat
   if (c.schema !== 'variador-aula' || c.version !== 1 || c.model !== MODEL || c.firmwareProfile !== PROFILE) return failure('Archivo incompatible con este modelo o versión.');
   const parameters = validateParameters(c.parameters);
   if (!parameters.ok) return parameters;
-  const motor = exactKeys(c.motor, Object.keys(motorRanges), 'Motor');
+  const motor = exactKeys(c.motor, recordKeys(MOTOR_RANGES), 'Motor');
   if (!motor.ok) return motor;
-  for (const key of Object.keys(motorRanges) as (keyof MotorSpecification)[]) {
-    const issue = numberIssue(motor.value[key], motorRanges[key][0], motorRanges[key][1], 'Motor ' + key);
-    if (issue) return failure(issue);
-  }
-  const actualMotor = motor.value as unknown as MotorSpecification;
-  if (actualMotor.poles % 2) return failure('El número de polos debe ser par.');
-  if (actualMotor.speedRPM >= 120 * actualMotor.frequency / actualMotor.poles) return failure('La velocidad nominal debe ser menor que la sincrónica.');
-  const mechanical = exactKeys(c.mechanical, Object.keys(mechanicalRanges), 'Carga');
+  const actualMotor = numericFields(motor.value, MOTOR_RANGES, key => 'Motor ' + key);
+  if (!actualMotor.ok) return actualMotor;
+  if (actualMotor.value.poles % 2) return failure('El número de polos debe ser par.');
+  if (actualMotor.value.speedRPM >= 120 * actualMotor.value.frequency / actualMotor.value.poles) return failure('La velocidad nominal debe ser menor que la sincrónica.');
+  const mechanical = exactKeys(c.mechanical, recordKeys(MECHANICAL_RANGES), 'Carga');
   if (!mechanical.ok) return mechanical;
-  for (const key of Object.keys(mechanicalRanges) as (keyof MechanicalLoad)[]) {
-    const issue = numberIssue(mechanical.value[key], mechanicalRanges[key][0], mechanicalRanges[key][1], key === 'torque' ? 'Par de carga' : key === 'friction' ? 'Fricción' : 'Inercia de carga');
-    if (issue) return failure(issue);
-  }
-  const inputs = exactKeys(c.inputs, Object.keys(inputKeys), 'Entradas');
+  const actualMechanical = numericFields(mechanical.value, MECHANICAL_RANGES, key => key === 'torque' ? 'Par de carga' : key === 'friction' ? 'Fricción' : 'Inercia de carga');
+  if (!actualMechanical.ok) return actualMechanical;
+  const inputs = exactKeys(c.inputs, recordKeys(inputKeys), 'Entradas');
   if (!inputs.ok) return inputs;
-  for (const key of inputBooleans) {
-    const issue = booleanIssue(inputs.value[key], key);
-    if (issue) return failure(issue);
-  }
-  const connections = exactKeys(inputs.value.outputConnections, outputPhases, 'Conexiones de salida');
+  const booleans = booleanFields(inputs.value, inputBooleans, key => key);
+  if (!booleans.ok) return booleans;
+  const connections = exactKeys(inputs.value.outputConnections, PHASES, 'Conexiones de salida');
   if (!connections.ok) return connections;
-  for (const phase of outputPhases) {
-    const issue = booleanIssue(connections.value[phase], 'Conexión ' + phase);
-    if (issue) return failure(issue);
-  }
+  const actualConnections = booleanFields(connections.value, PHASES, phase => 'Conexión ' + phase);
+  if (!actualConnections.ok) return actualConnections;
   const rangeNames = { supplyV: 'Tensión de red', analogPosition: 'Posición AI1', ambient: 'Temperatura ambiente', ventilation: 'Ventilación' } as const;
-  for (const key of Object.keys(inputRanges) as (keyof typeof inputRanges)[]) {
-    const issue = numberIssue(inputs.value[key], inputRanges[key][0], inputRanges[key][1], rangeNames[key]);
-    if (issue) return failure(issue);
-  }
-  if (!['5V', '10V', '20mA'].includes(String(inputs.value.analogType)) || typeof inputs.value.analogType !== 'string') return failure('Fuente AI1 inválida.');
-  const modes = exactKeys(c.inputModes, logicInputs, 'Mandos');
+  const numbers = numericFields(inputs.value, INPUT_RANGES, key => rangeNames[key]);
+  if (!numbers.ok) return numbers;
+  const analogType = inputs.value.analogType;
+  if (analogType !== '5V' && analogType !== '10V' && analogType !== '20mA') return failure('Fuente AI1 inválida.');
+  const modes = exactKeys(c.inputModes, LOGIC_INPUTS, 'Mandos');
   if (!modes.ok) return modes;
-  for (const key of logicInputs) if (modes.value[key] !== 'switch' && modes.value[key] !== 'button') return failure(key + ': tipo de mando inválido.');
+  const actualModes = modeFields(modes.value);
+  if (!actualModes.ok) return actualModes;
   const memory = exactKeys(c.driveMemory, ['backupParameters', 'backupValid', 'monitor', 'firstBoot'], 'Memoria');
   if (!memory.ok) return memory;
   const backup = validateParameters(memory.value.backupParameters);
   if (!backup.ok) return backup;
-  const backupIssue = booleanIssue(memory.value.backupValid, 'Respaldo');
-  if (backupIssue) return failure(backupIssue);
-  const bootIssue = booleanIssue(memory.value.firstBoot, 'Primer encendido');
-  if (bootIssue) return failure(bootIssue);
+  const backupValid = memory.value.backupValid, firstBoot = memory.value.firstBoot;
+  if (typeof backupValid !== 'boolean') return failure('Respaldo: se esperaba verdadero o falso.');
+  if (typeof firstBoot !== 'boolean') return failure('Primer encendido: se esperaba verdadero o falso.');
   if (!isMonitorCode(memory.value.monitor)) return failure('Monitor inválido.');
   if (memory.value.monitor === 'rPF' && parameters.value['FUn.PI.PIF'] !== 'AI1') return failure('El monitor rPF requiere PI activo.');
   // The complete input is copied only after validation. Callers receive a new
@@ -294,15 +316,15 @@ export function validateConfig(value: unknown): ValidationResult<ValidConfigurat
   const configuration: Configuration = {
     schema: 'variador-aula', version: 1, model: MODEL, firmwareProfile: PROFILE,
     parameters: parameters.value,
-    motor: clone(actualMotor),
-    mechanical: clone(mechanical.value) as unknown as MechanicalLoad,
-    inputs: clone(inputs.value) as unknown as Inputs,
-    inputModes: clone(modes.value) as Configuration['inputModes'],
+    motor: clone(actualMotor.value),
+    mechanical: clone(actualMechanical.value),
+    inputs: { ...clone(booleans.value), ...clone(numbers.value), outputConnections: clone(actualConnections.value), analogType },
+    inputModes: clone(actualModes.value),
     driveMemory: {
       backupParameters: backup.value,
-      backupValid: memory.value.backupValid as boolean,
+      backupValid,
       monitor: memory.value.monitor,
-      firstBoot: memory.value.firstBoot as boolean,
+      firstBoot,
     },
   };
   return { ok: true, value: configuration as ValidConfiguration };

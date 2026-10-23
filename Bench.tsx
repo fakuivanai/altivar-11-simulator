@@ -9,6 +9,7 @@ import {
 import { LOGIC_INPUTS, PHASES } from './engine-types';
 import type { LogicInputId } from './engine-types';
 import { ToggleButton, place, usePress, useSimulator } from './ui';
+import { INPUT_RANGES } from './configuration';
 
 /** A logic input contact: a maintained switch toggles on click, a pushbutton acts while held. */
 function LogicInput(props: { id: LogicInputId }): JSX.Element {
@@ -41,7 +42,7 @@ function Supply(): JSX.Element {
       label="Interruptor de red" title={inputs().powered ? 'Abrir la red' : 'Cerrar la red'} />
     <label id="supply-field" {...place(SUPPLY_FIELD)}>
       Red monofásica<br />
-      <input type="number" aria-label="Tensión de red" min="0" max="350" step="1" value={inputs().supplyV}
+      <input type="number" aria-label="Tensión de red" min={INPUT_RANGES.supplyV[0]} max={INPUT_RANGES.supplyV[1]} step="1" value={inputs().supplyV}
         onChange={event => {
           if (!sim.commitExternal('inputs', 'supplyV', event.currentTarget.valueAsNumber)) event.currentTarget.value = String(inputs().supplyV);
         }} /> V
@@ -53,7 +54,7 @@ function AnalogReference(): JSX.Element {
   const sim = useSimulator();
   const inputs = () => sim.state.config.inputs;
   return <>
-    <input id="analog-position" {...place(ANALOG_SLIDER)} type="range" min="0" max="100" step="1"
+    <input id="analog-position" {...place(ANALOG_SLIDER)} type="range" min={INPUT_RANGES.analogPosition[0]} max={INPUT_RANGES.analogPosition[1]} step="1"
       aria-label={inputs().analogType === '5V' ? 'Potenciómetro AI1' : 'Fuente externa AI1'} value={inputs().analogPosition}
       onInput={event => sim.commitExternal('inputs', 'analogPosition', event.currentTarget.valueAsNumber)} />
     <div id="analog-reading" {...place({ x: ANALOG_SLIDER.x, y: ANALOG_SLIDER.y + 28, w: ANALOG_SLIDER.w, h: 22 })}>{sim.analogReading()}</div>

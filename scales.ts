@@ -1,11 +1,12 @@
 // Slider scales for the mechanical load, relative to the motor's own nameplate so
 // that the whole travel is useful for any motor. The configuration still stores
 // SI values (N m, kg m2, N m s/rad); these functions only map slider positions.
+import { MECHANICAL_RANGES } from './configuration';
 import type { ValidConfiguration } from './configuration';
 
 type Motor = ValidConfiguration['motor'];
 /** Limits enforced by configuration.ts for the stored values. */
-const LIMITS = { torque: 20, friction: 0.2, inertia: 2 } as const;
+const LIMITS = { torque: MECHANICAL_RANGES.torque[1], friction: MECHANICAL_RANGES.friction[1], inertia: MECHANICAL_RANGES.inertia[1] } as const;
 
 export function ratedSpeed(motor: Motor): number { return motor.speedRPM * Math.PI / 30; }
 /** Rated torque from the nameplate: P / omega. */

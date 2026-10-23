@@ -1,11 +1,13 @@
-import { PHASES } from './engine-types';
 // Readings, the right-hand column (scope, nameplate, environment and files in tabs,
 // with the load always visible), and the 3D motor canvas.
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js';
 import type { JSX } from 'solid-js';
 import { MOTOR_CANVAS, READINGS, SETTINGS } from './layout';
 import { makeMotorView } from './motor-view';
-import type { ValidConfiguration } from './configuration';
+import { INPUT_RANGES, MOTOR_RANGES } from './configuration';
+import type { Configuration, ValidConfiguration } from './configuration';
+import { PHASES } from './engine-types';
+import type { NumericKey } from './simulator';
 import { frictionScale, inertiaScale, percentScale, ratedSpeed, ratedTorque, startTime, torqueScale } from './scales';
 import type { Scale } from './scales';
 import { Scope } from './Scope';
@@ -57,11 +59,10 @@ export function Readings(): JSX.Element {
 
 type Motor = ValidConfiguration['motor'];
 const percentText = (value: number): string => value.toFixed(value !== 0 && Math.abs(value) < 10 ? 1 : 0);
-type NumericKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T] & string;
 
 /** A number field bound to one configuration value; a refused value springs back. */
 function NumberField<S extends 'motor' | 'inputs'>(props: {
-  section: S; field: NumericKey<ValidConfiguration[S]>; label: JSX.Element; min: number; max: number; step: number;
+  section: S; field: NumericKey<Configuration[S]>; label: JSX.Element; min: number; max: number; step: number;
 }): JSX.Element {
   const sim = useSimulator();
   const value = (): number => {
@@ -73,8 +74,7 @@ function NumberField<S extends 'motor' | 'inputs'>(props: {
     <label>{props.label}
       <input type="number" min={props.min} max={props.max} step={props.step} value={value()}
         onChange={event => {
-          const commit = sim.commitExternal as (section: S, key: string, value: number) => boolean;
-          if (!commit(props.section, props.field, event.currentTarget.valueAsNumber)) event.currentTarget.value = String(value());
+          if (!sim.commitNumber(props.section, props.field, event.currentTarget.valueAsNumber)) event.currentTarget.value = String(value());
         }} />
     </label>
   );
@@ -94,10 +94,10 @@ function ScaledSlider(props: { id: string; label: string; scale: Scale; value: n
   );
 }
 
-const NAMEPLATE: ReadonlyArray<[string, NumericKey<Motor>, number, number, number]> = [
-  ['Potencia kW', 'powerKW', .05, 3, .01], ['Tensión V', 'voltage', 100, 500, 1],
-  ['Frecuencia Hz', 'frequency', 40, 200, 1], ['Corriente A', 'current', .1, 20, .01],
-  ['Velocidad rpm', 'speedRPM', 50, 12000, 1], ['Cos φ', 'cosPhi', .1, 1, .01],
+const NAMEPLATE: ReadonlyArray<[string, NumericKey<Motor>, number]> = [
+  ['Potencia kW', 'powerKW', .01], ['Tensión V', 'voltage', 1],
+  ['Frecuencia Hz', 'frequency', 1], ['Corriente A', 'current', .01],
+  ['Velocidad rpm', 'speedRPM', 1], ['Cos φ', 'cosPhi', .01],
 ];
 
 function Nameplate(): JSX.Element {
@@ -106,15 +106,15 @@ function Nameplate(): JSX.Element {
   return (
     <Section title="Placa del motor">
       <div class="fields">
-        <For each={NAMEPLATE}>{([label, field, min, max, step]) =>
-          <NumberField section="motor" field={field} label={label} min={min} max={max} step={step} />}</For>
+        <For each={NAMEPLATE}>{([label, field, step]) =>
+          <NumberField section="motor" field={field} label={label} min={MOTOR_RANGES[field][0]} max={MOTOR_RANGES[field][1]} step={step} />}</For>
         <label>Polos
           <select id="motor-poles" value={poles()}
             onChange={event => { if (!sim.commitExternal('motor', 'poles', Number(event.currentTarget.value))) event.currentTarget.value = String(poles()); }}>
             <For each={[2, 4, 6, 8, 10, 12]}>{count => <option value={count}>{count}</option>}</For>
           </select>
         </label>
-        <NumberField section="motor" field="inertia" label={<>Inercia, kg m<sup>2</sup></>} min={0.0001} max={2} step={0.0001} />
+        <NumberField section="motor" field="inertia" label={<>Inercia, kg m<sup>2</sup></>} min={MOTOR_RANGES.inertia[0]} max={MOTOR_RANGES.inertia[1]} step={0.0001} />
       </div>
       <p class="tab-note">El variador debe estar detenido para cambiar el motor.</p>
     </Section>
@@ -151,7 +151,7 @@ function EnvironmentAndFiles(): JSX.Element {
   return <>
     <Section title="Ambiente">
       <div class="environment fields">
-        <NumberField section="inputs" field="ambient" label="Temperatura, °C" min={0} max={60} step={1} />
+        <NumberField section="inputs" field="ambient" label="Temperatura, °C" min={INPUT_RANGES.ambient[0]} max={INPUT_RANGES.ambient[1]} step={1} />
         <ScaledSlider id="ventilation" label="Ventilación" scale={percentScale()} value={sim.state.config.inputs.ventilation}
           onChange={value => sim.commitExternal('inputs', 'ventilation', value)}
           reading={`${(100 * sim.state.config.inputs.ventilation).toFixed(0)} %`} />

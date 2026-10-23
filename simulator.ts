@@ -22,6 +22,7 @@ const ROOT_PARAMETERS = ['ACC', 'dEC', 'LSP', 'HSP', 'ItH', 'SP2', 'SP3', 'SP4']
 const ROOT_MENUS = ['AIt', 'drC', 'FUn', 'SUP'] as const;
 /** Configuration sections that the bench (not the keypad) changes. */
 export type ExternalSection = 'motor' | 'mechanical' | 'inputs' | 'inputModes';
+export type NumericKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T] & string;
 /** Boolean bench inputs other than the logic inputs. */
 export type BooleanInput = 'powered' | 'shortCircuit' | 'brakeModule' | 'shaftHeld';
 export type LiveReadings = Omit<DriveState, 'angle'>;
@@ -541,9 +542,8 @@ export function createSimulator() {
     const scale = inputs.analogType === '5V' ? .05 : inputs.analogType === '10V' ? .1 : .2;
     return 'AI1 ' + (inputs.analogPosition * scale).toFixed(1) + (inputs.analogType === '20mA' ? ' mA' : ' V');
   }
-  /** Applies one bench change; returns false when it was refused. */
-  function commitExternal<S extends ExternalSection, K extends keyof ValidConfiguration[S] & string>(
-    section: S, key: K, value: ValidConfiguration[S][K]): boolean {
+  /** All bench changes pass through the same configuration validation. */
+  function commitField<S extends ExternalSection>(section: S, key: keyof Configuration[S] & string, value: unknown): boolean {
     return batch(() => {
       if (section === 'motor' && !isStopped()) {
         status('Detenga el variador para cambiar el motor.');
@@ -560,6 +560,13 @@ export function createSimulator() {
       status('');
       return true;
     });
+  }
+  function commitExternal<S extends ExternalSection, K extends keyof Configuration[S] & string>(
+    section: S, key: K, value: Configuration[S][K]): boolean {
+    return commitField(section, key, value);
+  }
+  function commitNumber<S extends 'motor' | 'inputs'>(section: S, key: NumericKey<Configuration[S]>, value: number): boolean {
+    return commitField(section, key, value);
   }
   /** Flips one of the bench switches (supply, short, brake module, shaft clamp). */
   function toggleInput(key: BooleanInput): boolean {
@@ -597,7 +604,7 @@ export function createSimulator() {
   beginClock();
   return {
     state, readings, onFrame, display, flashing, selected, items, panelSnapshot, isStopped,
-    key, enter, escapeKey, navigate, canNavigate, commitExternal, toggleInput, togglePhase, inputRole, operatorNote, analogReading,
+    key, enter, escapeKey, navigate, canNavigate, commitExternal, commitNumber, toggleInput, togglePhase, inputRole, operatorNote, analogReading,
     download, importFile, status, monitorLabel,
   };
 }
