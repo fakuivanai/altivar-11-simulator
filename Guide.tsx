@@ -1,3 +1,4 @@
+import { diagnosisLines } from './diagnosis';
 // Study panel for the learning page: explains the display, the selected menu or
 // parameter, active faults and the drive's present behaviour, and lists the whole
 // configuration. It only reads the simulator state and calls navigate.
@@ -6,8 +7,9 @@ import type { JSX } from 'solid-js';
 import { CATALOG } from './configuration';
 import type { CatalogItem, CodeValue } from './configuration';
 import type { FaultCode } from './engine-types';
-import { DISPLAY_STATES, FAULTS, MENUS, PARAMETERS, diagnosisLines, manualLink } from './guide-content';
-import { LOGIC_INPUTS, catalogItem } from './simulator';
+import { DISPLAY_STATES, FAULTS, MENUS, PARAMETERS, manualLink } from './guide-content';
+import { LOGIC_INPUTS } from './engine-types';
+import { catalogItem } from './panel';
 import { useSimulator } from './ui';
 
 const ELEMENT_HELP: Readonly<Record<string, string>> = {
