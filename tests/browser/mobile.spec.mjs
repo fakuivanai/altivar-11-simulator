@@ -383,10 +383,21 @@ await run('native-pinch-and-pan-4to1', file, {
     assert.equal(await page.evaluate(() => VFDSimulator.getConfig().inputModes.LI4), expected, 'native touch cannot operate the bottom mode control after zoom/pan: ' + JSON.stringify(await page.evaluate(() => window.__mobileTouches.slice(-3))));
   }
   const zoomOutSteps = [];
-  let restored = bottom;
+  // Native mode-button focus can pan the visual viewport. The pre-tap snapshot
+  // is no longer a valid coordinate frame for the reverse gesture.
+  let restored = await page.evaluate(inspectViewport);
+  assert.ok(restored.visual.scale > 1.01, 'mode taps unexpectedly removed native zoom: ' + JSON.stringify({
+    before: bottom.visual, after: restored.visual,
+    touches: await page.evaluate(() => window.__mobileTouches.slice(-4))
+  }));
   for (let round = 0; round < 3 && restored.visual.scale > 1.01; round += 1) {
-    const view = restored.visual;
-    const start = await page.evaluate(view => {
+    // Read the viewport and hit-test both gesture targets in the same task.
+    const start = await page.evaluate(() => {
+      const visual = window.visualViewport;
+      const view = { width: visual.width, height: visual.height, scale: visual.scale,
+        left: visual.offsetLeft, top: visual.offsetTop };
+      const target = element => ({ id: element.closest('[id]')?.id, tag: element.tagName,
+        touchAction: getComputedStyle(element).touchAction });
       for (const fraction of [.6, .5, .8, .2]) {
         const left = document.elementFromPoint(view.left + .1 * view.width, view.top + fraction * view.height);
         const right = document.elementFromPoint(view.left + .9 * view.width, view.top + fraction * view.height);
@@ -395,15 +406,16 @@ await run('native-pinch-and-pan-4to1', file, {
         // and native form widgets that may open their own interface.
         if (left && right && !left.closest('.key,#hold-shaft,input,select') && !right.closest('.key,#hold-shaft,input,select')) {
           return {
-            left: .1 * view.width,
-            right: .9 * view.width,
-            y: fraction * view.height
+            view, left: .1 * view.width, right: .9 * view.width, y: fraction * view.height,
+            targets: { left: target(left), right: target(right) }
           };
         }
       }
-      return null;
-    }, view);
-    assert.ok(start, 'no visible background for native zoom out');
+      return { view };
+    });
+    assert.ok(start.targets, 'no visible targets for native zoom out: ' + JSON.stringify(start));
+    const view = start.view;
+    assert.ok(view.scale > 1.01, 'native zoom was already removed before reverse pinch: ' + JSON.stringify(start));
     await cdp.send('Input.dispatchTouchEvent', {
       type: 'touchStart',
       touchPoints: [{
@@ -436,11 +448,22 @@ await run('native-pinch-and-pan-4to1', file, {
       type: 'touchEnd',
       touchPoints: []
     });
-    await page.waitForTimeout(150);
+    try {
+      // Touch dispatch completion does not imply compositor scale completion.
+      await page.waitForFunction(scale => window.visualViewport.scale < scale, view.scale, { timeout: 5000 });
+    } catch (error) {
+      assert.fail('reverse native pinch did not reduce zoom: ' + JSON.stringify({
+        round, before: view, gesture: start, after: (await page.evaluate(inspectViewport)).visual,
+        touches: await page.evaluate(() => window.__mobileTouches.slice(-4)), zoomOutSteps,
+        waitError: String(error)
+      }));
+    }
     restored = await page.evaluate(inspectViewport);
-    zoomOutSteps.push(restored.visual);
-    assert.ok(restored.visual.scale < view.scale, 'reverse native pinch does not reduce zoom');
+    zoomOutSteps.push({ before: view, targets: start.targets, after: restored.visual });
+    assert.ok(restored.visual.scale < view.scale, 'reverse native pinch did not retain reduced zoom: '
+      + JSON.stringify(zoomOutSteps));
   }
+  assert.ok(zoomOutSteps.length > 0, 'the fixture must exercise a reverse native pinch');
   assertFits(await snapshot('restored'));
   await bottomTouch(page);
 });
