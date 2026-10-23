@@ -221,3 +221,37 @@ test('Capacitor plus motor/shaft energy closes against source, board, copper and
   }
   assert.ok(regenerated > 0, 'A generating interval must return actual electrical energy to the capacitor');
 });
+
+
+test('Stationary zero-flux idle keeps the rectifier clock and sample cadence while skipping motor substeps', () => {
+  const settings = config(), idle = new PhysicalPlant(settings), reference = new PhysicalPlant(settings);
+  const samples = [], referenceSamples = [];
+  idle.setSampleListener(sample => samples.push(structuredClone(sample)));
+  reference.setSampleListener(sample => referenceSamples.push(structuredClone(sample)));
+  let motorCalls = 0;
+  const advance = idle.motor.advance.bind(idle.motor);
+  idle.motor.advance = (...args) => { motorCalls++; return advance(...args); };
+  for (const powered of [true, false, true]) {
+    settings.inputs.powered = powered;
+    for (let frame = 0; frame < 50; frame++) {
+      const start = samples.length * PLANT_ASSUMPTIONS.sampleInterval;
+      idle.advance(.005, off, settings, start);
+      for (let step = 0; step < 50; step++) reference.advance(h, off, settings, start + step * h);
+      assert.equal(idle.dcLink.voltage, reference.dcLink.voltage);
+      assert.equal(idle.dcLink.precharging, reference.dcLink.precharging);
+      assert.equal(idle.instantaneous.magneticEnergy, 0);
+    }
+  }
+  assert.equal(motorCalls, 150, 'The idle motor advances once per control tick, rather than fifty times');
+  assert.equal(samples.length, 1500);
+  assert.equal(referenceSamples.length, samples.length);
+  for (let index = 0; index < samples.length; index++) {
+    assert(Math.abs(samples[index].time - referenceSamples[index].time) < 1e-12);
+    assert.deepEqual({ ...samples[index], time: 0 }, { ...referenceSamples[index], time: 0 });
+  }
+  idle.advance(.005, ac(), settings, .75);
+  reference.advance(.005, ac(), settings, .75);
+  assert.deepEqual(idle.instantaneous.rotorFlux, reference.instantaneous.rotorFlux);
+  assert.equal(idle.dcLink.voltage, reference.dcLink.voltage);
+  assert.equal(idle.omega, reference.omega);
+});

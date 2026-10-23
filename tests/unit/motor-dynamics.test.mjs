@@ -248,3 +248,22 @@ test('Checkpoint rollback is exact across voltage and topology trials and reuses
   const other = new InductionMotorDynamics(makeMotorCircuit(circuitParameters(circuit), 3));
   assert.throws(() => other.restore(saved), RangeError);
 });
+
+test('An exactly unenergized stopped motor advances its clock with zero borrowed readings', () => {
+  const motor = new InductionMotorDynamics(circuit);
+  const borrowed = motor.readings;
+  assert.strictEqual(motor.advance(60, { omega: 0, excitation: { mode: 'off' } }), borrowed);
+  assert.equal(borrowed.time, 60);
+  for (const key of ['electricalAngle', 'torque', 'instantaneousTorque', 'currentMagnitude', 'currentRms',
+    'inputPower', 'reactivePower', 'statorCopperLoss', 'rotorCopperLoss', 'magneticEnergy', 'switchingLoss', 'numericalLoss'])
+    assert.equal(borrowed[key], 0, key);
+  for (const values of [borrowed.phaseCurrent, borrowed.phaseVoltage, borrowed.statorFlux, borrowed.rotorFlux])
+    assert(Object.values(values).every(value => value === 0));
+  const saved = motor.checkpoint();
+  motor.advance(.005, { omega: 0, excitation: { mode: 'off' } });
+  assert.equal(motor.readings.time, 60.005);
+  motor.restore(saved);
+  assert.equal(motor.readings.time, 60);
+  motor.advance(.0001, { omega: 0, excitation: ac() });
+  assert(motor.readings.currentMagnitude > 0, 'The shortcut must not skip the first energized step');
+});

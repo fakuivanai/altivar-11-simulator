@@ -131,6 +131,17 @@ export class InductionMotorDynamics {
       throw new RangeError('Invalid AC motor excitation.');
     if (excitation.mode === 'dc' && ![excitation.voltages.U, excitation.voltages.V, excitation.voltages.W].every(Number.isFinite))
       throw new RangeError('Invalid DC motor excitation.');
+    // An exactly unenergized stopped motor has no electrical evolution. Keep
+    // its clock/borrowed readings current without solving an all-zero system.
+    if (excitation.mode === 'off' && omega === 0 && this.sa === 0 && this.sb === 0 && this.ra === 0 && this.rb === 0) {
+      const out = this.sample;
+      out.time += seconds; out.electricalAngle = this.angle; this.connection = 0;
+      out.torque = out.instantaneousTorque = out.currentMagnitude = out.currentRms = out.inputPower = out.reactivePower = 0;
+      out.statorCopperLoss = out.rotorCopperLoss = out.magneticEnergy = out.switchingLoss = out.numericalLoss = 0;
+      out.phaseCurrent.U = out.phaseCurrent.V = out.phaseCurrent.W = out.phaseVoltage.U = out.phaseVoltage.V = out.phaseVoltage.W = 0;
+      out.statorFlux.alpha = out.statorFlux.beta = out.rotorFlux.alpha = out.rotorFlux.beta = 0;
+      return out;
+    }
     const c = this.circuit, k = c.magnetizingInductance / c.rotorInductance, sigma = c.leakageInductance;
     const connected = excitation.mode === 'off' ? null : excitation.connected ?? ALL_CONNECTED;
     const mask = connected ? (connected.U ? 1 : 0) + (connected.V ? 2 : 0) + (connected.W ? 4 : 0) : 0;

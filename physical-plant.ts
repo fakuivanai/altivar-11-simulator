@@ -110,6 +110,13 @@ export class PhysicalPlant {
             this.currentLimiter.reset(); this.injectionController.reset();
             this.previousMode = command.mode;
         }
+        const flux = this.motor.readings;
+        if (command.mode === 'off' && this.omega === 0 && load.torque >= 0
+            && flux.statorFlux.alpha === 0 && flux.statorFlux.beta === 0
+            && flux.rotorFlux.alpha === 0 && flux.rotorFlux.beta === 0) {
+            this.advanceIdle(dt, h, steps, command, config, startTime);
+            return;
+        }
         let torqueSum = 0, voltageSum = 0, powerSum = 0, reactiveSum = 0, lossSum = 0;
         this.currentLimited = false;
         for (let index = 0; index < steps; index++) {
@@ -234,12 +241,7 @@ export class PhysicalPlant {
             torqueSum += electrical.torque; voltageSum += voltage; powerSum += electrical.inputPower;
             lossSum += electrical.statorCopperLoss + electrical.rotorCopperLoss;
             reactiveSum += electrical.reactivePower;
-            if (++this.sampleCount % 5 === 0 && this.listener) this.listener({
-                time: startTime + (index + 1) * h, voltage: electrical.phaseVoltage, current: electrical.phaseCurrent,
-                torque: electrical.instantaneousTorque, rpm: this.omega * 30 / Math.PI,
-                flux: Math.hypot(electrical.rotorFlux.alpha, electrical.rotorFlux.beta), dcBus: link.voltage,
-                running: command.running, fault: command.fault, loadTorque: load.torque,
-            });
+            this.recordSample(h, index, startTime, command, config);
         }
         this.torque = torqueSum / steps; this.voltage = voltageSum / steps;
         this.inputPower = powerSum / steps; this.windingLoss = lossSum / steps;
@@ -247,4 +249,35 @@ export class PhysicalPlant {
         this.currentLag = Math.atan2(Math.abs(reactiveSum), powerSum);
         if (command.mode === 'off' || connected < 2) this.current = this.meanCurrentSquared = 0;
     }
+    /** Skip only a stationary, exactly unmagnetized open motor. The rectifier,
+     * precharge, control-board demand and recorder retain their 100 us clock.
+     * Coasting, residual flux, driven loads and DC injection use the full path.
+     */
+    private advanceIdle(dt: number, stepSeconds: number, steps: number, command: Readonly<PlantCommand>,
+        config: ReadonlyEngineConfiguration, startTime: number): void {
+        this.motor.advance(dt, { omega: 0, excitation: { mode: 'off' } });
+        this.meanCurrentSquared = this.current = this.torque = this.voltage = 0;
+        this.inputPower = this.windingLoss = this.regenerativePower = this.shaftReactionTorque = 0;
+        this.currentLag = Math.atan2(0, 0);
+        this.currentLimited = false;
+        for (let step = 0; step < steps; step++) {
+            const board = this.dcLink.voltage >= PLANT_ASSUMPTIONS.boardStartVoltage ? PLANT_ASSUMPTIONS.boardPower : 0;
+            this.dcLink.step(stepSeconds, { powered: config.inputs.powered, supplyV: config.inputs.supplyV,
+                electricalPower: board, brakeModule: config.inputs.brakeModule });
+            this.recordSample(stepSeconds, step, startTime, command, config);
+        }
+    }
+    private recordSample(stepSeconds: number, step: number, startTime: number, command: Readonly<PlantCommand>,
+        config: ReadonlyEngineConfiguration): void {
+        if (++this.sampleCount % 5 !== 0 || !this.listener) return;
+        const electrical = this.motor.readings;
+        this.listener({
+            time: startTime + (step + 1) * stepSeconds,
+            voltage: electrical.phaseVoltage, current: electrical.phaseCurrent,
+            torque: electrical.instantaneousTorque, rpm: this.omega * 30 / Math.PI,
+            flux: Math.hypot(electrical.rotorFlux.alpha, electrical.rotorFlux.beta), dcBus: this.dcLink.voltage,
+            running: command.running, fault: command.fault, loadTorque: config.mechanical.torque,
+        });
+    }
+
 }

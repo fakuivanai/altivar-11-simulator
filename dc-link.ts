@@ -76,10 +76,10 @@ export class DCLink {
             if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
                 throw new RangeError(`Invalid DC-link option: ${name}`);
         }
-        const o = this.options;
-        if (o.capacitance === 0 || o.lineFrequency === 0 || o.sourceResistance === 0 ||
-            o.bleedResistance === 0 || o.brakeResistance === 0 || o.brakeOffVoltage === 0 ||
-            o.brakeOnVoltage <= o.brakeOffVoltage || o.prechargeFraction > 1)
+        const components = this.options;
+        if (components.capacitance === 0 || components.lineFrequency === 0 || components.sourceResistance === 0 ||
+            components.bleedResistance === 0 || components.brakeResistance === 0 || components.brakeOffVoltage === 0 ||
+            components.brakeOnVoltage <= components.brakeOffVoltage || components.prechargeFraction > 1)
             throw new RangeError('Invalid DC-link component values');
         this.reset(initialVoltage);
     }
@@ -110,40 +110,40 @@ export class DCLink {
             regeneratedEnergy: 0, brakeEnergy: 0, bleedEnergy: 0, unservedEnergy: 0,
         };
         if (dt === 0) return result;
-        const o = this.options;
+        const components = this.options;
         if (!input.powered) {
             this.poweredTime = 0;
             this.bypassed = false;
         }
         const count = Math.ceil(dt / MAX_STEP);
-        const h = dt / count;
+        const stepSeconds = dt / count;
         const peak = Math.SQRT2 * input.supplyV;
-        for (let n = 0; n < count; n++) {
+        for (let step = 0; step < count; step++) {
             // Symmetric energy demand around RC charging avoids a voltage/power
             // singularity at an empty bus. Report any unsupplied demand.
-            this.exchangePower(input.electricalPower, h / 2, result);
+            this.exchangePower(input.electricalPower, stepSeconds / 2, result);
             if (input.powered) {
-                this.poweredTime += h;
-                if (this.poweredTime >= o.prechargeSeconds && peak > 0 &&
-                    this.voltage >= o.prechargeFraction * peak)
+                this.poweredTime += stepSeconds;
+                if (this.poweredTime >= components.prechargeSeconds && peak > 0 &&
+                    this.voltage >= components.prechargeFraction * peak)
                     this.bypassed = true;
-                const sourceV = peak * Math.abs(Math.sin(this.phase + Math.PI * o.lineFrequency * h));
+                const sourceV = peak * Math.abs(Math.sin(this.phase + Math.PI * components.lineFrequency * stepSeconds));
                 const beforeV = this.voltage;
                 if (sourceV > beforeV) {
-                    const resistance = o.sourceResistance + (this.bypassed ? 0 : o.prechargeResistance);
+                    const resistance = components.sourceResistance + (this.bypassed ? 0 : components.prechargeResistance);
                     // Exact RC charge for the midpoint-held rectified source.
-                    const afterV = beforeV + (sourceV - beforeV) * -Math.expm1(-h / (resistance * o.capacitance));
-                    const afterEnergy = 0.5 * o.capacitance * afterV * afterV;
+                    const afterV = beforeV + (sourceV - beforeV) * -Math.expm1(-stepSeconds / (resistance * components.capacitance));
+                    const afterEnergy = 0.5 * components.capacitance * afterV * afterV;
                     const added = afterEnergy - this.storedEnergy;
-                    const sourceEnergy = sourceV * o.capacitance * (afterV - beforeV);
+                    const sourceEnergy = sourceV * components.capacitance * (afterV - beforeV);
                     this.storedEnergy = afterEnergy;
                     result.rectifierEnergy += added;
                     result.sourceLossEnergy += Math.max(0, sourceEnergy - added);
                 }
             }
-            this.dissipate(h, input.brakeModule, result);
-            this.exchangePower(input.electricalPower, h / 2, result);
-            this.phase = (this.phase + TAU * o.lineFrequency * h) % TAU;
+            this.dissipate(stepSeconds, input.brakeModule, result);
+            this.exchangePower(input.electricalPower, stepSeconds / 2, result);
+            this.phase = (this.phase + TAU * components.lineFrequency * stepSeconds) % TAU;
         }
         result.voltage = this.voltage;
         result.energy = this.energy;
@@ -165,19 +165,19 @@ export class DCLink {
     }
 
     private dissipate(dt: number, available: boolean, result: DCLinkStep): void {
-        const o = this.options;
-        if (!available || this.voltage <= o.brakeOffVoltage) this.braking = false;
-        else if (this.voltage >= o.brakeOnVoltage) this.braking = true;
-        const bleed = o.bleedResistance === null ? 0 : 1 / o.bleedResistance;
+        const components = this.options;
+        if (!available || this.voltage <= components.brakeOffVoltage) this.braking = false;
+        else if (this.voltage >= components.brakeOnVoltage) this.braking = true;
+        const bleed = components.bleedResistance === null ? 0 : 1 / components.bleedResistance;
         let remaining = dt;
         if (this.braking) {
-            const brake = 1 / o.brakeResistance;
+            const brake = 1 / components.brakeResistance;
             const conductance = brake + bleed;
             // Stop chopper conduction at its lower hysteresis threshold; the
             // unused part of this substep still dissipates in the bleeder.
-            const untilOff = o.capacitance / conductance * Math.log(this.voltage / o.brakeOffVoltage);
+            const untilOff = components.capacitance / conductance * Math.log(this.voltage / components.brakeOffVoltage);
             const active = Math.min(dt, untilOff);
-            const loss = this.storedEnergy * -Math.expm1(-2 * conductance * active / o.capacitance);
+            const loss = this.storedEnergy * -Math.expm1(-2 * conductance * active / components.capacitance);
             this.storedEnergy -= loss;
             result.brakeEnergy += loss * brake / conductance;
             result.bleedEnergy += loss * bleed / conductance;
@@ -185,7 +185,7 @@ export class DCLink {
             if (untilOff <= dt) this.braking = false;
         }
         if (bleed > 0 && remaining > 0) {
-            const loss = this.storedEnergy * -Math.expm1(-2 * bleed * remaining / o.capacitance);
+            const loss = this.storedEnergy * -Math.expm1(-2 * bleed * remaining / components.capacitance);
             this.storedEnergy -= loss;
             result.bleedEnergy += loss;
         }
