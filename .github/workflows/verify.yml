@@ -8,6 +8,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      browser_tests:
+        description: Run the full browser suite (heavy)
+        type: boolean
+        default: false
       publish:
         description: Publish to Pages
         type: boolean
@@ -27,14 +31,20 @@ jobs:
           package-manager-cache: false
       - run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium firefox
+      - run: pnpm verify:light
+      - name: Install browsers (manual only)
+        if: github.event_name == 'workflow_dispatch' && inputs.browser_tests
+        run: pnpm exec playwright install --with-deps chromium firefox
       - name: Audio output for Firefox
+        if: github.event_name == 'workflow_dispatch' && inputs.browser_tests
         run: |
           sudo apt-get install --no-install-recommends -y pulseaudio
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=tests
           pactl set-default-sink tests
-      - run: xvfb-run -a pnpm verify
+      - name: Full browser tests (manual only)
+        if: github.event_name == 'workflow_dispatch' && inputs.browser_tests
+        run: xvfb-run -a pnpm test:browser
       - name: Archive tagged sources
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

@@ -10,20 +10,19 @@ Node.js 24 or newer and pnpm 11.25.0 are needed only for building and testing. T
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm verify:light
+```
+
+`verify:light` checks TypeScript, runs source-based unit tests, and builds and checks the HTML. These are the automatic GitHub checks. `pnpm test` imports the current TypeScript sources through the test loader, without saved compiled model files.
+
+The full browser suite is heavier and runs only when explicitly requested. To run it locally along with the lightweight checks:
+
+```sh
 pnpm exec playwright install --with-deps chromium firefox
 pnpm verify
 ```
 
-On Linux without a desktop display, run `xvfb-run -a pnpm verify` for the WebGL browser checks. Firefox audio checks need a PulseAudio-compatible output; CI provides a null sink.
-
-`verify` checks TypeScript, runs source-based logic tests, builds and checks the HTML, and runs browser tests. `pnpm test` imports the current TypeScript sources through the test loader. It never uses saved compiled model files.
-
-```sh
-pnpm check
-pnpm test
-pnpm build
-pnpm test:browser
-```
+After a build, `pnpm test:browser` runs the browser suite alone. On Linux without a desktop display, use `xvfb-run -a pnpm verify` for the WebGL checks. Firefox audio checks need a PulseAudio-compatible output; the optional GitHub browser checks provide a null sink.
 
 `dist/` contains the projection page, study page, model documentation, model limitations, index and a compatibility manual redirect. Keep these HTML files together to follow local documentation links. It contains no source files, dependency directories or manufacturer PDFs. `BUILD_DIR` can select a different output directory.
 
@@ -57,9 +56,11 @@ VFDSimulator.saveParameter('ACC', 4)
 
 ## GitHub Pages and classroom builds
 
-The workflow checks pushes and pull requests. To publish after creating the repository, select GitHub Actions as the Pages source, then run the Verify workflow with Publish to Pages enabled. This follows [GitHub's custom workflow instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). All application links are relative, so the output works under a repository subpath without embedding the repository name.
+The workflow runs lightweight checks on pushes, pull requests and version tags. To request browser tests on GitHub, start the Verify workflow manually and enable `browser_tests`, which is off by default.
 
-A `v*` tag runs verification and produces a downloadable classroom artifact containing the HTML and a source archive from that commit. Source history is maintained in Git; generated outputs and test reports stay out of commits.
+To publish after creating the repository, select GitHub Actions as the Pages source, then run the Verify workflow with Publish to Pages enabled. This follows [GitHub's custom workflow instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages). All application links are relative, so the output works under a repository subpath without embedding the repository name.
+
+A `v*` tag runs lightweight verification and produces a downloadable classroom artifact containing the HTML and a source archive from that commit. Source history is maintained in Git; generated outputs and test reports stay out of commits.
 
 ## Dependencies
 
