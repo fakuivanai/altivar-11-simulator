@@ -4,6 +4,7 @@ import { createPanelFixture } from '../helpers/panel-fixture.mjs';
 import { diagnosisLines } from '../../diagnosis.ts';
 import { manualLink, PARAMETERS, FAULTS } from '../../guide-content.ts';
 import documents from '../../manufacturer-documents.json' with { type: 'json' };
+import { manualUrl } from '../../manuals.ts';
 const change = (sim, section, key, value) => assert.equal(sim.commitExternal(section, key, value), true);
 const text = sim => diagnosisLines(sim.state.config, sim.readings()).map(line => line[1]).join('\n');
 test('keypad draft cancellation, save flash and first-boot bFr', () => {
@@ -329,18 +330,28 @@ test('invalid import is an error value and cannot replace configuration', () => 
 });
 test('manufacturer PDF page mappings and model-bound explanations', () => {
   const sim = createPanelFixture();
+  assert.equal(manualUrl('user'), documents.find(document => document.id === 'user').sourceUrl + '#page=53');
+  assert.equal(manualUrl('technical'), documents.find(document => document.id === 'technical').sourceUrl + '#page=1');
   assert.deepEqual(manualLink({
     manual: 'user',
     page: 22
   }), {
     url: documents.find(document => document.id === 'user').sourceUrl + '#page=57',
     page: 57,
-    label: 'Manual, pág. 56'
+    label: 'Manual, pág. 56, PDF 57'
   });
   assert.equal(manualLink({
     manual: 'technical',
     page: 119
   }).page, 56);
+  assert.deepEqual(manualLink({
+    manual: 'technical',
+    page: 101
+  }), {
+    url: documents.find(document => document.id === 'technical').sourceUrl + '#page=38',
+    page: 38,
+    label: 'Manual técnico, pág. 101, PDF 38'
+  });
   assert.match(PARAMETERS['FUn.AP1'].text, /PI activo/);
   assert.match(PARAMETERS['FUn.PI.PAU'].text, /SP4/);
   assert.match(FAULTS.OCF.simulator, /demanda magnetizante/);

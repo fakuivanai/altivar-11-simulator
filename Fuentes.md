@@ -25,7 +25,7 @@ Los enlaces oficiales y las correspondencias de páginas se definen en `manufact
 
 La referencia técnica tiene 61 páginas PDF, numeradas de 64 a 124. Se restan 63 a la página impresa para localizarla en el visor. La FAQ FA279259 distingue el manual portugués de gama A del técnico inglés de gamas E, A y U; este simulador usa el segundo.
 
-Los documentos se consultan en el sitio del fabricante. El proyecto no los redistribuye. El fragmento de página es una indicación para el visor; la respuesta del sitio puede descargar el PDF sin abrirlo en esa página. La consulta del manual requiere internet aunque el simulador funciona sin conexión.
+Los enlaces llevan a las descargas oficiales del fabricante. Tras descargar el archivo, busque la página PDF indicada. El fragmento de página es una indicación para el visor. Se requiere internet aunque el simulador funciona sin conexión. El proyecto no redistribuye estos PDF.
 
 ## Valores y decisiones no resueltos por las fuentes
 

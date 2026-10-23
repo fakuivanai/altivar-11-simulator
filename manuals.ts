@@ -23,5 +23,5 @@ export function manualReference(source: { manual: Manual; page: number }) {
   const page = source.page + document.pageMapping.catalogToPdfOffset;
   const printed = source.page + document.pageMapping.catalogToPrintedOffset;
   return { url: manualUrl(source.manual, page), page,
-    label: (source.manual === 'user' ? 'Manual, pág. ' : 'Manual técnico, pág. ') + printed };
+    label: (source.manual === 'user' ? 'Manual, pág. ' : 'Manual técnico, pág. ') + printed + ', PDF ' + page };
 }

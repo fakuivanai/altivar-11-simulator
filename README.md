@@ -2,11 +2,11 @@
 
 A Spanish classroom simulator of a variable frequency drive, with a projection view and a study guide. The model represents an ATV11HU09M2E, with a reduced induction-motor model for teaching.
 
-The application builds into standalone HTML files. Download either simulator page and open it directly in a browser. It needs no server or runtime downloads. Manufacturer manuals open on the official website and require internet.
+The application builds into standalone HTML files. Download either simulator page and open it directly in a browser. It needs no server or runtime downloads. Manufacturer links lead to official PDF downloads and require internet. Page fragments are viewer hints; after downloading, use the indicated PDF page.
 
 ## Development
 
-Use Node.js 24 or newer and pnpm 11.25.0.
+Node.js 24 or newer and pnpm 11.25.0 are needed only for building and testing. The standalone HTML pages need only a browser.
 
 ```sh
 pnpm install --frozen-lockfile

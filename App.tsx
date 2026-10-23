@@ -22,7 +22,7 @@ function Header(): JSX.Element {
       <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}</div>
       <SoundToggle />
       <FullscreenButton />
-      <a href={manualUrl('user')} target="_blank" rel="noopener" title="Documento oficial. Sección española: página 53 del PDF. Requiere internet.">Manual</a>
+      <a href={manualUrl('user')} target="_blank" rel="noopener" title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
     </header>
   );
 }

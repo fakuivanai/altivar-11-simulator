@@ -76,14 +76,14 @@ const index = `<!doctype html>
 <ul><li><a href="Simulador de variador.html">Abrir el simulador para proyección</a></li>
 <li><a href="Simulador de variador, guía de estudio.html">Abrir la guía de estudio</a></li></ul>
 <p>Ambas páginas se pueden descargar y abrir sin conexión.</p>
-<p><a href="${escape(userUrl)}">Manual oficial del fabricante</a>. La sección española comienza en la página 53 del PDF. Su consulta requiere internet.</p></main>
+<p><a href="${escape(userUrl)}">Descargar manual oficial del fabricante</a>. La sección española comienza en la página 53 del PDF, impresa 52. Su consulta requiere internet.</p></main>
 </html>
 `;
 const manual = `<!doctype html>
 <html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="0;url=${escape(userUrl)}"><title>Manual del fabricante</title>
-<p><a href="${escape(userUrl)}">Manual oficial. Sección española: página 53 del PDF.</a></p>
-<p><a href="${escape(technicalManual.sourceUrl)}">Referencia técnica oficial</a></p>
+<p><a href="${escape(userUrl)}">Descargar manual oficial. Español: página 53 del PDF, impresa 52.</a></p>
+<p><a href="${escape(technicalManual.sourceUrl)}">Descargar referencia técnica oficial</a></p>
 <p>Los documentos del fabricante requieren internet.</p>
 <p><a href="Simulador de variador.html">Volver al simulador</a></p></html>
 `;

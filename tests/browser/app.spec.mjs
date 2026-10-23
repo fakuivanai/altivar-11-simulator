@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test, userManual } from '../helpers/app.mjs';
 import { auditStage } from '../helpers/stage-audit.mjs';
+import documents from '../../manufacturer-documents.json' with { type: 'json' };
 for (const [width, height] of [[1024, 768], [1280, 720], [1920, 1080]]) for (const name of ['projection', 'guide']) test(name + ' layout ' + width + 'x' + height, async ({
   app
 }) => {
@@ -59,6 +60,12 @@ test('the landing page opens both application pages with relative links', async 
   } = app;
   for (const [label, target, mode] of [['Abrir el simulador para proyección', file, null], ['Abrir la guía de estudio', guide, 'guide']]) {
     await page.goto(index);
+    const manual = page.getByRole('link', {
+      name: 'Descargar manual oficial del fabricante',
+      exact: true
+    });
+    assert.equal(await manual.getAttribute('href'), userManual + '#page=53');
+    assert.match(await page.locator('main').innerText(), /página 53 del PDF, impresa 52/);
     const link = page.getByRole('link', {
       name: label,
       exact: true
@@ -89,6 +96,89 @@ test("factory setup, relay, official manual and ENT-ready semantics", async ({
   assert.match(await page.locator('#status').textContent(), /LI1/);
   const href = await page.locator('.topbar a').getAttribute('href');
   assert.equal(href, userManual + '#page=53');
+  assert.equal(await page.locator('.topbar a').getAttribute('title'), 'Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.');
+});
+test('official manual clicks support PDF downloads and preserve simulator state', async ({
+  app
+}) => {
+  const context = await app.browser.newContext();
+  const unexpected = [],
+    errors = [],
+    requests = [];
+  const base = new URL('./', app.file).href;
+  let expectedUrl;
+  // A synthetic one-page PDF exercises downloads without fetching manufacturer files.
+  const pdf = [
+    "%PDF-1.4",
+    "1 0 obj",
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "endobj",
+    "2 0 obj",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "endobj",
+    "3 0 obj",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>",
+    "endobj",
+    "xref",
+    "0 4",
+    "0000000000 65535 f ",
+    "0000000009 00000 n ",
+    "0000000058 00000 n ",
+    "0000000115 00000 n ",
+    "trailer",
+    "<< /Size 4 /Root 1 0 R >>",
+    "startxref",
+    "184",
+    "%%EOF",
+    ""
+  ].join('\n');
+  context.on('page', page => page.on('pageerror', error => errors.push(String(error))));
+  await context.route('**/*', route => {
+    const request = route.request();
+    if (request.url() === expectedUrl && request.isNavigationRequest() && request.resourceType() === 'document') {
+      requests.push(request.url());
+      return route.fulfill({
+        contentType: 'application/pdf',
+        headers: {
+          'Content-Disposition': 'attachment; filename="official-manual.pdf"'
+        },
+        body: Buffer.from(pdf)
+      });
+    }
+    if (/^(data|blob|about):/.test(request.url()) || request.url().startsWith(base)) return route.continue();
+    unexpected.push(request.url());
+    return route.abort();
+  });
+  const page = await context.newPage();
+  try {
+    const technical = documents.find(document => document.id === 'technical');
+    assert.ok(technical);
+    for (const [target, selector, href, navigate] of [
+      [app.file, '.topbar a', userManual + '#page=53', null],
+      [app.guide, '#guide a[href="' + technical.sourceUrl + '#page=38"]', technical.sourceUrl + '#page=38', 'FUn.tLS']
+    ]) {
+      await page.goto(target);
+      await page.waitForFunction(() => !!window.VFDSimulator);
+      if (navigate) await page.evaluate(id => VFDSimulator.navigate(id), navigate);
+      assert.equal(await page.evaluate(() => VFDSimulator.saveParameter('ACC', 4)), true);
+      const before = await page.evaluate(() => VFDSimulator.getConfig());
+      const link = page.locator(selector).first();
+      if (navigate) assert.equal(await link.textContent(), 'Manual técnico, pág. 101, PDF 38');
+      assert.equal(await link.getAttribute('href'), href);
+      expectedUrl = href.split('#')[0];
+      const [download] = await Promise.all([page.waitForEvent('download'), link.click()]);
+      assert.equal(download.url(), href);
+      assert.equal(download.suggestedFilename(), 'official-manual.pdf');
+      assert.equal(page.url(), target);
+      assert.deepEqual(await page.evaluate(() => VFDSimulator.getConfig()), before);
+      await download.cancel();
+    }
+    assert.deepEqual(requests, [userManual, technical.sourceUrl]);
+    assert.deepEqual(unexpected, []);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
 });
 test("native pointer and keyboard keys change exactly one step and ESC cancels", async ({
   app
@@ -698,6 +788,7 @@ test("guide tracks stored/draft values and manual page links", async ({
   assert.match(text, /ACC\s*Tiempo de aceleración/);
   assert.match(text, /En edición\s*3\.1 s/);
   assert.equal(await page.locator('#guide a').first().getAttribute('href'), userManual + '#page=58');
+  assert.equal(await page.locator('#guide a').first().textContent(), 'Manual, pág. 57, PDF 58');
   await page.locator('#esc').click();
   await page.locator('#esc').click();
   const row = page.locator('#guide tr.row[title="Tiempo de aceleración"]');
