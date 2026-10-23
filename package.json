@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "scripts": {
     "check": "tsc --noEmit",
-    "build": "node build.mjs",
     "test": "node --import ./tests/register.mjs --test tests/unit/*.test.mjs",
-    "verify": "pnpm check && pnpm test && pnpm build && pnpm test:browser",
-    "test:browser": "playwright test"
+    "build": "node build.mjs",
+    "test:browser": "playwright test",
+    "verify": "pnpm check && pnpm test && pnpm build && pnpm test:browser"
   },
   "dependencies": {
     "solid-js": "1.9.17"
@@ -15,12 +15,12 @@
   "devDependencies": {
     "@babel/core": "7.29.7",
     "@babel/preset-typescript": "7.29.7",
+    "@playwright/test": "1.59.1",
+    "@types/node": "24.19.2",
     "babel-preset-solid": "1.9.16",
     "esbuild": "0.28.2",
-    "typescript": "7.0.2",
     "parse5": "8.0.1",
-    "@types/node": "24.19.2",
-    "@playwright/test": "1.59.1"
+    "typescript": "7.0.2"
   },
   "type": "module",
   "engines": {
