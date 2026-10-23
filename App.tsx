@@ -9,6 +9,7 @@ import { GuideLayout } from './Guide';
 import { FullscreenButton, SoundToggle } from './HeaderControls';
 import { STAGE } from './layout';
 import { manualUrl } from './manuals';
+import { displayNumber } from './format';
 import { MotorCanvas, Readings, Settings } from './Panels';
 import { Schematic } from './Schematic';
 import { createSimulator } from './simulator';
@@ -19,11 +20,15 @@ function Header(): JSX.Element {
   return (
     <header class="topbar">
       <h1>Variador de frecuencia</h1><span class="model">ATV11HU09M2E, 0,37 kW, 230 V, 2,1 A</span>
-      <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}<Show when={sim.state.simulationLag > .1}> Simulación atrasada {sim.state.simulationLag.toFixed(1)} s.</Show></div>
+      <div id="status" class="status" role="status" aria-live="polite">{sim.state.message}
+        <Show when={sim.state.simulationLag > .1}> Simulación atrasada {displayNumber(sim.state.simulationLag)} s.</Show>
+      </div>
       <SoundToggle />
       <FullscreenButton />
-      <a id="manufacturer-manual" href={manualUrl('user')} target="_blank" rel="noopener" title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
-      <a id="model-documentation" href="Documentación del simulador.html" target="_blank" rel="noopener" title="Funciones, modelos y supuestos del simulador">Modelo</a>
+      <a id="manufacturer-manual" href={manualUrl('user')} target="_blank" rel="noopener"
+        title="Descarga oficial del manual. Español: página PDF 53, impresa 52. Requiere internet.">Manual</a>
+      <a id="model-documentation" href="Documentación del simulador.html" target="_blank" rel="noopener"
+        title="Funciones, modelos y supuestos del simulador">Cómo funciona</a>
     </header>
   );
 }

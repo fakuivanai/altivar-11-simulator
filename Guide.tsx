@@ -7,7 +7,7 @@ import type { JSX } from 'solid-js';
 import { CATALOG } from './configuration';
 import type { CatalogItem, CodeValue } from './configuration';
 import type { FaultCode } from './engine-types';
-import { DISPLAY_STATES, FAULTS, MENUS, PARAMETERS, manualLink } from './guide-content';
+import { DISPLAY_STATES, FAULTS, MENUS, PARAMETERS, manualLink, readableCondition } from './guide-content';
 import { catalogItem } from './simulator';
 import { LOGIC_INPUTS } from './engine-types';
 import { useSimulator } from './ui';
@@ -28,7 +28,7 @@ const ELEMENT_HELP: Readonly<Record<string, string>> = {
   'hold-shaft': 'Aplica un freno de par finito mientras se mantiene pulsado. El eje recorre un ángulo hasta detenerse. Con salida energizada, pueden subir la corriente y el estado térmico.',
   'supply-field': 'Tensión de la red monofásica. Este modelo usa unos 293 V para OSF y unos 163 V para USF; son umbrales del modelo, no especificaciones del fabricante.',
   'scope-canvas': 'Osciloscopio: Registro conserva muestras del transitorio físico promediado. Las vistas 2 períodos y Zoom 2 ms reconstruyen el régimen del estado actual. El zoom agrega rizado de corriente sin modificar el motor.',
-  'scope-history': 'Registro temporal del motor, con tensión y corriente, par y velocidad, o flujo y bus.',
+  'scope-history': 'Registro temporal del motor, con tensión y corrientes eficaces, par y velocidad, o flujo y bus.',
   'scope-arm': 'Arma una captura única del evento elegido, con tiempo previo y posterior al disparo.',
   'scope-live': 'Vuelve al registro continuo después de una captura.',
   'scope-periods': 'Muestra dos períodos de la salida. Con muchos pulsos por píxel, el gris marca entre qué niveles conmuta la tensión.',
@@ -49,10 +49,6 @@ function show(value: CodeValue | null | undefined, metadata: CatalogItem): strin
   return String(value) + unit(metadata);
 }
 function menuName(path: readonly string[]): string { return MENUS[path.join('.')]?.name ?? path[path.length - 1] ?? ''; }
-/** Writes a catalog condition with menu codes instead of internal identifiers. */
-function readableCondition(condition: string): string {
-  return condition.replace(/\b(?:FUn|AIt|drC|SUP)\.([\w.]+)/g, (_, rest: string) => rest.split('.').join(' / ')).replace(/!=/g, ' distinto de ').replace(/==/g, ' igual a ');
-}
 
 function useParameters() {
   const sim = useSimulator();

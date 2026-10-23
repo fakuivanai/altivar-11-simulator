@@ -3,6 +3,17 @@
 // see Fuentes.md. Notes marked as simulator behaviour describe this model, not the drive.
 import type { FaultCode } from './engine-types';
 
+/** Display catalog dependencies with panel menu codes and written comparisons. */
+export function readableCondition(condition: string): string {
+  return condition
+    .replace(/\b(?:FUn|AIt|drC|SUP)\.([\w.]+)/g, (_, rest: string) => rest.split('.').join(' / '))
+    .replace(/!=/g, ' distinto de ')
+    .replace(/==?/g, ' igual a ')
+    .replace(/>/g, ' mayor que ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export interface MenuText { name: string; text: string }
 export interface ParameterText {
   /** What the parameter does. */
@@ -53,7 +64,7 @@ export const MENUS: Readonly<Record<string, MenuText>> = {
 export const PARAMETERS: Readonly<Record<string, ParameterText>> = {
   bFr: { text: 'Frecuencia nominal del motor, 50 o 60 Hz, según su placa. Fija los valores iniciales de FrS, HSP y los umbrales relacionados. En el primer nivel aparece sólo en la primera puesta en tensión; luego queda en FUn.', choices: { '50': '50 Hz, ajuste de fábrica de la gama E.', '60': '60 Hz, ajuste de fábrica de la gama U.' } },
   ACC: { text: 'Tiempo que tarda la rampa en ir de 0 Hz a la frecuencia nominal FrS. No es el tiempo hasta la consigna: con consigna menor que FrS la rampa termina antes.', tip: 'Con mucha inercia y ACC corto el variador entra en límite de corriente y la aceleración real se alarga.' },
-  dEC: { text: 'Tiempo que tarda la rampa en ir de FrS a 0 Hz. Al frenar, el motor devuelve energía al bus de continua.', tip: 'Con mucha inercia y dEC corto sube el bus de continua. Si brA está en YES, el variador alarga la rampa; si no, puede disparar ObF.' },
+  dEC: { text: 'Tiempo que tarda la rampa en ir de FrS a 0 Hz. Al desacelerar puede devolver energía al bus; si las pérdidas absorben el trabajo de frenado, no hay regeneración neta.', tip: 'Con mucha inercia y dEC corto puede subir el bus de continua. Si brA está en YES, el variador alarga la rampa; si no, puede disparar ObF.' },
   LSP: { text: 'Frecuencia con referencia analógica mínima. La señal analógica se escala entre LSP y la velocidad máxima seleccionada. Las velocidades preseleccionadas se programan por separado.' },
   HSP: { text: 'Frecuencia con consigna máxima. Debe ser adecuada para el motor y la máquina.' },
   ItH: { text: 'Corriente que usa la protección térmica del motor. Se ajusta a la corriente nominal de la placa del motor. La memoria térmica calculada se reinicia al quitar la alimentación.', tip: 'Si ItH es mayor que la corriente nominal real del motor, la protección actúa tarde. Reiniciar esa memoria no enfría el motor. El modelo conserva por separado el calentamiento físico estimado.' },
@@ -86,7 +97,7 @@ export const PARAMETERS: Readonly<Record<string, ParameterText>> = {
   'FUn.LOC': { text: 'Umbral de sobrecarga, en porcentaje de la corriente nominal del variador. Si la corriente lo supera durante tOL, el variador dispara OLC.' },
   'FUn.tOL': { text: 'Temporización de sobrecarga. Empieza al superar LOC y se cancela al bajar de LOC menos 10 % de la corriente nominal del variador. Sólo cuenta en régimen estable, con la consigna alcanzada. Cero desactiva la detección.' },
   'FUn.AP1': { text: 'Histéresis de consigna alcanzada durante la marcha con PI activo. El intervalo interior es AP1 menos 0,2 Hz. Se aumenta si el variador no llega a considerar la consigna alcanzada.' },
-  'FUn.LUL': { text: 'Umbral de subcarga, en porcentaje de la corriente nominal del variador. Si la corriente queda debajo durante tUL, el variador dispara ULF.', tip: 'Sirve para detectar una correa cortada o una bomba en vacío. Pruebe bajar el par de carga a cero con el motor en marcha.' },
+  'FUn.LUL': { text: 'Umbral de subcarga, en porcentaje de la corriente nominal del variador. Si la corriente queda debajo durante tUL, el variador dispara ULF.', tip: 'Sirve para detectar una correa cortada o una bomba en vacío. Compare la corriente con distintas cargas antes de elegir LUL. El disparo exige corriente por debajo del umbral durante tUL.' },
   'FUn.tUL': { text: 'Temporización de subcarga. Empieza al bajar de LUL y se cancela al superar LUL más 10 % de la corriente nominal del variador. Sólo cuenta en régimen estable. Cero desactiva la detección.' },
   'FUn.tLS': { text: 'Tiempo máximo funcionando en LSP. Pasado ese tiempo el motor se detiene, y vuelve a arrancar si la consigna supera LSP con la orden de marcha presente. Cero no limita el tiempo.' },
   'FUn.PI.PIF': { text: 'Realimentación del regulador PI. Asignarla activa la función.', choices: { nO: 'PI inactivo.', AI1: 'PI activo, realimentación en AI1. Se fuerza rrS = nO y LIA de PS2 = LI1.' } },
@@ -112,7 +123,7 @@ export const PARAMETERS: Readonly<Record<string, ParameterText>> = {
   'FUn.nSt': { text: 'Entrada de parada en rueda libre. La parada se produce cuando la entrada está en 0: el variador corta la alimentación del motor y éste se detiene sólo por el par resistente.', choices: LI_CHOICES, tip: 'Una vez asignada, esa entrada debe estar cerrada para poder arrancar.' },
   'FUn.StP': { text: 'Qué hace el variador si se corta la red con el motor en marcha.', choices: { nO: 'Bloqueo y parada en rueda libre.', FrP: 'Parada siguiendo la rampa, si la inercia alcanza para sostener el bus.', FSt: 'Parada rápida; el tiempo depende de la inercia y del frenado disponible.' } },
   'FUn.brA': { text: 'Adaptación automática de la rampa de desaceleración.', choices: { nO: 'Rampa fija: con mucha inercia puede disparar ObF.', YES: 'Si la rampa es demasiado corta para la inercia, el variador la alarga para evitar la sobretensión.' }, tip: 'Con un módulo de frenado conectado conviene brA = nO.' },
-  'FUn.AdC.ACt': { text: 'Inyección de corriente continua al detenerse.', choices: { nO: 'Sin inyección.', YES: 'Inyección durante tdC al llegar a velocidad nula sin orden de marcha.', Ct: 'Inyección permanente mientras no haya orden de marcha.' }, tip: 'Durante la inyección la pantalla muestra dcb. Con mando de 3 hilos sólo actúa mientras LI1 esté cerrada.' },
+  'FUn.AdC.ACt': { text: 'Inyección de corriente continua al detenerse.', choices: { nO: 'Sin inyección.', YES: 'Inyección durante tdC al llegar a velocidad nula sin orden de marcha.', Ct: 'Inyección permanente mientras no haya orden de marcha.' }, tip: 'Durante la inyección la pantalla muestra dcb. En régimen consume potencia y frena; el flujo previo de alterna puede devolver energía al bus al conmutar. Con mando de 3 hilos sólo actúa mientras LI1 esté cerrada.' },
   'FUn.AdC.tdC': { text: 'Duración de la inyección cuando ACt = YES.' },
   'FUn.AdC.SdC': { text: 'Corriente de inyección.' },
   'FUn.SFt.ACt': { text: 'Rango de frecuencia de conmutación.', choices: { LFr: 'Aleatoria alrededor de 2 o 4 kHz; reparte el ruido acústico.', LF: 'Fija de 2 o 4 kHz.', HF: 'Fija de 8, 12 o 16 kHz. Si el variador se calienta baja sola a la inferior.' } },
@@ -143,7 +154,7 @@ export const DISPLAY_STATES: Readonly<Record<string, string>> = {
 
 export const FAULTS: Readonly<Record<FaultCode, FaultText>> = {
   SCF: { name: 'Cortocircuito en el motor o falla de aislamiento', detects: 'Corriente de cortocircuito entre fases o a tierra en la salida.', simulator: 'Se dispara al energizar la salida con el corto U-V puesto, en marcha o durante la inyección de continua.', remedies: ['Revisar el cableado del variador al motor y el aislamiento del motor.'], logicReset: false, autoReset: false },
-  OCF: { name: 'Sobreintensidad', detects: 'Sobreintensidad. El fabricante indica rampas cortas, inercia o carga excesiva y bloqueo mecánico como posibles causas.', simulator: 'La demanda magnetizante calculada supera 1,15 veces el límite durante más de 80 ms. Este criterio es una aproximación del modelo; el bloqueo del eje también puede activar el límite de corriente, OLC u OLF.', remedies: ['Revisar las rampas: pueden ser demasiado cortas.', 'Comprobar el dimensionamiento del motor, del variador y de la carga: inercia o carga demasiado alta.', 'Buscar un bloqueo mecánico.'], logicReset: false, autoReset: false },
+  OCF: { name: 'Sobreintensidad', detects: 'Sobreintensidad. El fabricante indica rampas cortas, inercia o carga excesiva y bloqueo mecánico como posibles causas.', simulator: 'En alterna, la corriente calculada supera 1,15 veces el límite durante más de 80 ms. Este criterio es una aproximación del modelo; el bloqueo del eje también puede activar el límite de corriente, OLC u OLF.', remedies: ['Revisar las rampas: pueden ser demasiado cortas.', 'Comprobar el dimensionamiento del motor, del variador y de la carga: inercia o carga demasiado alta.', 'Buscar un bloqueo mecánico.'], logicReset: false, autoReset: false },
   ObF: { name: 'Sobretensión en desaceleración', detects: 'El bus de continua sube por la energía que devuelve el motor al frenar.', simulator: 'Bus por encima de 415 V con regeneración. Aparece con dEC corto, mucha inercia o par de carga negativo, brA = nO y sin módulo de frenado.', remedies: ['Aumentar el tiempo de desaceleración.', 'Agregar un módulo y una resistencia de frenado si hace falta.', 'Activar brA si la aplicación lo permite.'], logicReset: true, autoReset: true },
   OSF: { name: 'Sobretensión de red', detects: 'Tensión de red demasiado alta.', simulator: 'Tensión de red por encima de unos 293 V (bus mayor que 415 V).', remedies: ['Verificar la tensión de red.'], logicReset: true, autoReset: true },
   USF: { name: 'Subtensión de red', detects: 'Tensión de red demasiado baja.', simulator: 'Tensión de red por debajo de unos 163 V (bus menor que 230 V). El modelo elimina USF al recuperar la tensión, pero puede exigir una nueva orden de marcha.', remedies: ['Verificar la tensión de red y el parámetro de tensión.'], logicReset: false, autoReset: false },

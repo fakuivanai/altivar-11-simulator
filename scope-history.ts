@@ -125,7 +125,9 @@ export type ScopeHistory = ReturnType<typeof createScopeHistory>;
 
 export interface ScopePoint { time: number; value: number }
 /** Preserve a narrow peak and trough in each bin while bounding canvas work. */
-export function scopeTrace(samples: readonly ScopeSample[], value: (sample: ScopeSample) => number, maxPoints = 1000): ScopePoint[] {
+export function scopeTrace<T extends { readonly time: number }>(
+  samples: readonly T[], value: (sample: T) => number, maxPoints = 1000,
+): ScopePoint[] {
   invariant(Number.isInteger(maxPoints) && maxPoints >= 4, 'el trazado necesita al menos cuatro puntos');
   const point = (index: number): ScopePoint => ({ time: samples[index]!.time, value: value(samples[index]!) });
   if (samples.length <= maxPoints) return samples.map((_, index) => point(index));

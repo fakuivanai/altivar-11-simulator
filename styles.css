@@ -142,6 +142,16 @@ input[type=range] { display: block; width: 100%; height: 24px; margin: 2px 0 0; 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #bbb; }
 .tabs button { font-size: 17px; padding: 6px 12px; border: 1px solid #bbb; border-bottom: none; border-radius: 6px 6px 0 0; background: #f2f2f2; margin-bottom: -1px; }
 .tabs button[aria-selected=true] { background: #fff; font-weight: 700; border-bottom: 1px solid #fff; }
+.tab-panel > :not(.scope) { flex-shrink: 0; }
+#panel-motor { scrollbar-gutter: stable; }
+.motor-circuit { margin-top: 10px; padding-bottom: 10px; }
+.motor-circuit summary { cursor: pointer; font-size: 17px; padding: 8px 0; }
+.motor-circuit[open] summary { position: sticky; top: -10px; background: white; border-bottom: 1px solid #bbb; }
+.motor-circuit p { margin: 6px 0; }
+.circuit-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0; }
+.circuit-fields label { display: flex; flex-direction: column; justify-content: space-between; }
+#motor-fit { width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
+#motor-fit th[scope=row] { text-align: left; font-weight: normal; }
 .tab-note { margin: 4px 0 0; font-size: 13px; line-height: 17px; color: #555; }
 .segmented { display: inline-flex; }
 .segmented button { font-size: 14px; padding: 4px 8px; border-radius: 0; white-space: nowrap; }
@@ -150,10 +160,24 @@ input[type=range] { display: block; width: 100%; height: 24px; margin: 2px 0 0; 
 .segmented button[aria-pressed=true] { background: #245c76; border-color: #245c76; color: #fff; }
 .scope { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }
 .scope > :not(canvas) { flex-shrink: 0; }
-.scope-controls { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.scope-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.scope-toolbar .segmented button { padding: 4px 6px; }
+.scope-channels label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.scope-channels select { max-width: 64px; }
+.scope-capture { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.scope-capture details { position: relative; }
+.scope-capture summary { cursor: pointer; padding: 4px; white-space: nowrap; }
+.scope-capture-options { position: absolute; right: 0; top: 100%; z-index: 2; display: flex; align-items: center;
+  gap: 6px; width: max-content; padding: 9px; background: white; border: 1px solid #999; border-radius: 4px; }
+.scope-capture-options label { display: flex; align-items: center; gap: 4px; }
+.scope-capture-options button, .scope-capture-options select { font-size: 14px; }
+#scope-capture-status { white-space: nowrap; }
+.scope-angle { display: flex; align-items: center; gap: 6px; font-size: 14px; flex: 1; min-width: 0; max-width: 190px; }
+.scope-angle input { width: auto; min-width: 0; flex: 1; margin: 0; }
+.scope-angle output { white-space: nowrap; }
 .legend { display: flex; gap: 10px; font-size: 14px; font-weight: 700; }
 #scope-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
-.scope-summary { margin: 0; font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.scope-summary { margin: 0; min-height: 40px; font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; }
 section { margin: 0; }
 
 /* Learning page: stage on the left, study panel on the right. */

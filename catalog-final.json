@@ -110,7 +110,7 @@
     "max": 3.15,
     "step": 0.01,
     "unit": "A",
-    "note": "El manual da un valor inicial según calibre; el simulador usa In=2.1 A."
+    "note": "El manual da un valor inicial según calibre; el simulador usa In = 2,1 A."
   },
   {
     "id": "SP2",
@@ -359,7 +359,7 @@
     "max": 3.15,
     "step": 0.01,
     "unit": "A",
-    "note": "Se interpreta el intervalo 0.25 a 1.5 In como fracciones de In. Inicial según calibre; se usa In."
+    "note": "Se interpreta el intervalo de 0,25 a 1,5 In como fracciones de In. Inicial según calibre; se usa In."
   },
   {
     "id": "drC.CLI",
@@ -396,7 +396,7 @@
     "max": 10,
     "step": 0.1,
     "unit": "Hz",
-    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 2.7 Hz."
+    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 2,7 Hz."
   },
   {
     "id": "drC.SLP",
@@ -433,7 +433,7 @@
     "min": 0.5,
     "max": 1,
     "step": 0.01,
-    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 0.8."
+    "note": "Inicial según calibre, sin valor numérico en las fuentes. El simulador supone 0,8."
   },
   {
     "id": "FUn.tCC.ACt",
@@ -690,7 +690,7 @@
     "max": 100,
     "step": 0.1,
     "unit": "s",
-    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10% In."
+    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10 % In."
   },
   {
     "id": "FUn.AP1",
@@ -709,7 +709,7 @@
     "max": 200,
     "step": 0.1,
     "unit": "Hz",
-    "note": "Código AP1 en el cuadro y gráfico. API en el texto es una errata. Descripción aplica con PI en marcha; intervalo interior AP1 menos 0.2 Hz."
+    "note": "Código AP1 en el cuadro y gráfico. API en el texto es una errata. La descripción aplica con PI en marcha; el intervalo interior es AP1 menos 0,2 Hz."
   },
   {
     "id": "FUn.LUL",
@@ -746,7 +746,7 @@
     "max": 100,
     "step": 0.1,
     "unit": "s",
-    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10% In en el gráfico."
+    "note": "Cero desactiva la detección. Activa solo en régimen estable. Histéresis de 10 % In en el gráfico."
   },
   {
     "id": "FUn.tLS",
@@ -974,7 +974,7 @@
       "LI4"
     ],
     "condition": "FUn.PI.PIF = AI1 y FUn.PI.Pr2 != nO",
-    "note": "Debe asignarse Pr2 antes de Pr4. Tabla PI: B/A 00 rPI,01 PI2,11 PI3,10 PI4."
+    "note": "Debe asignarse Pr2 antes de Pr4. Tabla PI, entradas B y A: 00 elige rPI, 01 elige PI2, 11 elige PI3 y 10 elige PI4."
   },
   {
     "id": "FUn.PI.PI2",
@@ -1180,7 +1180,7 @@
     "step": 0.01,
     "unit": "A",
     "condition": "FUn.LC2.LI != nO",
-    "note": "Fuente da valor inicial 1.5 In pero no intervalo. El simulador adopta el de CLI, 0.5 a 1.5 In; esto es una inferencia.",
+    "note": "La fuente da un valor inicial de 1,5 In, sin intervalo. El simulador adopta el de CLI, de 0,5 a 1,5 In; esto es una inferencia.",
     "rangeBasis": "inferred_from_CLI"
   },
   {
@@ -1345,7 +1345,7 @@
       16
     ],
     "unit": "kHz",
-    "note": "LF/LFr: 2 o 4. HF: 8,12 o16, inicial12. A2kHz cambia a4kHz a alta velocidad. HF reduce frecuencia si sube temperatura."
+    "note": "LF y LFr admiten 2 o 4 kHz. HF admite 8, 12 o 16 kHz, con 12 kHz iniciales. A 2 kHz cambia a 4 kHz a alta velocidad. HF reduce la frecuencia si sube la temperatura."
   },
   {
     "id": "FUn.FLr",
@@ -1389,7 +1389,7 @@
       "CtA",
       "PI"
     ],
-    "note": "OCr pleno a2In, rFr pleno aHSP, FtA umbralFtd, SrA referencia alcanzada, CtA umbralCtd, PI regulador en marcha."
+    "note": "OCr da señal plena a 2 In; rFr, a HSP. FtA indica el umbral Ftd; SrA, referencia alcanzada; CtA, umbral Ctd; PI, regulador en marcha."
   },
   {
     "id": "FUn.dO.Ftd",
@@ -1450,7 +1450,7 @@
       "YES"
     ],
     "condition": "FUn.tCC.ACt = 2C y FUn.tCC.tCt != trn",
-    "note": "Esperas1s,5s,10s y luego60s; abandona tras6min. FallasOHF,OLC,OLF,ObF,OSF,PHF,ULF."
+    "note": "Espera 1 s, 5 s, 10 s y luego 60 s; abandona tras 6 min. Fallos admitidos: OHF, OLC, OLF, ObF, OSF, PHF y ULF."
   },
   {
     "id": "FUn.SCS",
@@ -1510,7 +1510,7 @@
     "min": 0,
     "max": 999,
     "step": 1,
-    "note": "Estado OFF sin clave, On bloqueado o código2..999 desbloqueado. Ver procedimiento completo técnico119. Solo monitores disponibles con clave bloqueada. En JSON, OFF se representa con 0. El valor 1 no es válido.",
+    "note": "OFF indica ausencia de clave; On, bloqueo; un código de 2 a 999, desbloqueo. Ver el procedimiento completo en la página 119 del manual técnico. Con clave bloqueada sólo hay monitores disponibles. En JSON, OFF se representa con 0. El valor 1 no es válido.",
     "special": true
   },
   {

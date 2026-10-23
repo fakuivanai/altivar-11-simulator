@@ -522,6 +522,8 @@ test("native shaft hold freezes angle and release resumes acceleration", async (
   // browser cases continue to use the unchanged default classroom bench.
   const mechanics = structuredClone(original);
   mechanics.mechanical.torque = 1.2;
+  // This heavier brake/restart fixture uses the IR setting verified by the control tests.
+  mechanics.parameters['drC.UFr'] = 100;
   mechanics.parameters['FUn.tOL'] = mechanics.parameters['FUn.tUL'] = 0;
   await install(mechanics);
   await page.locator('#LI1').click();
